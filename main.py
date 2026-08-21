@@ -13,6 +13,16 @@ def main():
     state = "auto_calibrate"
     timeout_start = None # track failure detection
 
+    cv2.namedWindow("Pocket Physio")
+    clicked = False
+    
+    def on_click(event, x, y, flags, param):
+        nonlocal clicked
+        if event == cv2.EVENT_LBUTTONDOWN:
+            clicked = True
+
+    cv2.setMouseCallback("Pocket Physio", on_click)
+
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
@@ -35,8 +45,8 @@ def main():
             min_l, max_l = min(min_l, data.left_knee_angle), max(max_l, data.left_knee_angle)
             min_r, max_r = min(min_r, data.right_knee_angle), max(max_r, data.right_knee_angle)
 
-            cv2.putText(frame, "flex both legs. press 'c' to lock", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-            cv2.putText(frame, f"l_rom: {int(max_l - min_l)} | r_rom: {int(max_r - min_r)}", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            cv2.putText(frame, "Flex both legs. Click screen to lock", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            cv2.putText(frame, f"Left ROM: {int(max_l - min_l)} | Right ROM: {int(max_r - min_r)}", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
         elif state == "tracking":
             # isolate active limb data
@@ -49,16 +59,17 @@ def main():
             cv2.putText(frame, f"knee: {int(val)} / max flex limit: {int(limit)}", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
             cv2.putText(frame, f"load offloaded: {int(data.weight_dist)}%", (30, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
 
-        cv2.imshow("pocket-physio", frame)
+        cv2.imshow("Pocket Physio", frame)
         key = cv2.waitKey(10) & 0xFF
         
-        if key == ord('c') and state == "auto_calibrate":
+        if clicked and state == "auto_calibrate":
             rom_l = max_l - min_l
             rom_r = max_r - min_r
 
             # lock restricted limb state
             engine.injured_side = "left" if rom_l < rom_r else "right"
             state = "tracking"
+            clicked = False
 
         elif key == ord('q'): break
 
