@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from typing import Literal
 
 mp_pose = mp.solutions.pose
+mp_drawing = mp.solutions.drawing_utils
+mp_drawing_styles = mp.solutions.drawing_styles
 
 @dataclass
 class posestate:
@@ -37,6 +39,13 @@ class poseengine:
 
         if not results.pose_landmarks:
             return None
+
+        mp_drawing.draw_landmarks(
+            frame,
+            results.pose_landmarks,
+            mp_pose.POSE_CONNECTIONS,
+            landmark_drawing_spec = mp_drawing_styles.get_default_pose_landmarks_style()
+        )
 
         lms = results.pose_landmarks.landmark
 
