@@ -1,5 +1,6 @@
 import cv2
 from calibration import poseengine
+import time
 
 def main():
     cap = cv2.VideoCapture(0)
@@ -7,10 +8,21 @@ def main():
 
     min_l, max_l, min_r, max_r = 180.0, 0.0, 180.0, 0.0
     state = "auto_calibrate"
+    timeout_start = None # track failure detection
 
     while cap.isOpened():
         ret, frame = cap.read()
-        if not ret: break
+        if not ret:
+            if timeout_start is None:
+                timeout_start = time.time()
+            elif time.time() - timeout_start > 2.0:
+                print("Camera timeout: No feed for 2s. Exiting...")
+                break
+            print ("Waiting for camera...")
+            time.sleep(0.1)
+            continue
+
+        timeout_start = None # reset
 
         data = engine.process_frame(frame)
         if not data: continue
