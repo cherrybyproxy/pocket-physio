@@ -4,6 +4,9 @@ import time
 
 def main():
     cap = cv2.VideoCapture(0)
+    # downsample resolution
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
     engine = poseengine()
 
     min_l, max_l, min_r, max_r = 180.0, 0.0, 180.0, 0.0
