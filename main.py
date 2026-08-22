@@ -10,7 +10,7 @@ def main():
     engine = poseengine()
 
     min_l, max_l, min_r, max_r = 180.0, 0.0, 180.0, 0.0
-    state = "alignment"
+    state = "mode_select"
     timeout_start = None # track failure detection
     countdown_start = None
     CALIB_DELAY = 5.0
@@ -45,10 +45,7 @@ def main():
 
         if not data: continue
 
-        if state == "alignment":
-            cv2.putText(frame, "Centre your body in the frame. Click the screen to start calibration.", (30,40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-
-        elif state == "mode_select":
+        if state == "mode_select":
             cv2.putText(frame, "Press 'a' for auto-calibration or 'm' for manual calibration", (30,40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
         elif state == "auto_calibrate_countdown":
@@ -109,9 +106,7 @@ def main():
                 state = "auto_calibrate"
         
         if clicked:
-            if state == "alignment":
-                state = "mode_select"
-            elif state == "auto_calibrate":
+            if state == "auto_calibrate":
                 rom_l, rom_r = max_l - min_l, max_r - min_r
                 # lock restricted limb state
                 engine.injured_side = "left" if rom_l < rom_r else "right"
