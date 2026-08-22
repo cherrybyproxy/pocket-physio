@@ -38,9 +38,10 @@ class poseengine:
     def get_angle(self, a, b, c):
         # compute planar joint angle
         a, b, c = np.array(a), np.array(b), np.array(c)
-        radians = np.arctan2(c[1] - b[1], c[0] - b[0]) - np.arctan2(a[1] - b[1], a[0] - b[0])
-        angle = np.abs(radians * 180.0 / np.pi)
-        return 360.0 - angle if angle > 180.0 else angle
+        ba = a - b
+        bc = c - b
+        cosine_angle = np.dot(ba, bc) / (np.linalg.norm(ba) * np.linalg.norm(bc))
+        return np.degrees(np.arccos(np.clip(cosine_angle, -1.0, 1.0)))
 
     # apply EMA filtering
     def apply_ema(self, curr, prev):
@@ -55,6 +56,7 @@ class poseengine:
         if not results.pose_landmarks:
             return None
 
+# draw 2d skeleton on screen
         mp_drawing.draw_landmarks(
             frame,
             results.pose_landmarks,
@@ -62,29 +64,30 @@ class poseengine:
             landmark_drawing_spec = mp_drawing_styles.get_default_pose_landmarks_style()
         )
 
-        lms = results.pose_landmarks.landmark
+        # use world landmarks for metric 3d math
+        wlms = results.pose_world_landmarks.landmark
 
-        # map spatial coordinates
-        l_hip = [lms[mp_pose.PoseLandmark.LEFT_HIP.value].x, lms[mp_pose.PoseLandmark.LEFT_HIP.value].y]
-        l_knee = [lms[mp_pose.PoseLandmark.LEFT_KNEE.value].x, lms[mp_pose.PoseLandmark.LEFT_KNEE.value].y]
-        l_ankle = [lms[mp_pose.PoseLandmark.LEFT_ANKLE.value].x, lms[mp_pose.PoseLandmark.LEFT_ANKLE.value].y]
+        l_hip = [wlms[mp_pose.PoseLandmark.LEFT_HIP.value].x, wlms[mp_pose.PoseLandmark.LEFT_HIP.value].y, wlms[mp_pose.PoseLandmark.LEFT_HIP.value].z]
+        l_knee = [wlms[mp_pose.PoseLandmark.LEFT_KNEE.value].x, wlms[mp_pose.PoseLandmark.LEFT_KNEE.value].y, wlms[mp_pose.PoseLandmark.LEFT_KNEE.value].z]
+        l_ankle = [wlms[mp_pose.PoseLandmark.LEFT_ANKLE.value].x, wlms[mp_pose.PoseLandmark.LEFT_ANKLE.value].y, wlms[mp_pose.PoseLandmark.LEFT_ANKLE.value].z]
 
-        r_hip = [lms[mp_pose.PoseLandmark.RIGHT_HIP.value].x, lms[mp_pose.PoseLandmark.RIGHT_HIP.value].y]
-        r_knee = [lms[mp_pose.PoseLandmark.RIGHT_KNEE.value].x, lms[mp_pose.PoseLandmark.RIGHT_KNEE.value].y]
-        r_ankle = [lms[mp_pose.PoseLandmark.RIGHT_ANKLE.value].x, lms[mp_pose.PoseLandmark.RIGHT_ANKLE.value].y]
+        r_hip = [wlms[mp_pose.PoseLandmark.RIGHT_HIP.value].x, wlms[mp_pose.PoseLandmark.RIGHT_HIP.value].y, wlms[mp_pose.PoseLandmark.RIGHT_HIP.value].z]
+        r_knee = [wlms[mp_pose.PoseLandmark.RIGHT_KNEE.value].x, wlms[mp_pose.PoseLandmark.RIGHT_KNEE.value].y, wlms[mp_pose.PoseLandmark.RIGHT_KNEE.value].z]
+        r_ankle = [wlms[mp_pose.PoseLandmark.RIGHT_ANKLE.value].x, wlms[mp_pose.PoseLandmark.RIGHT_ANKLE.value].y, wlms[mp_pose.PoseLandmark.RIGHT_ANKLE.value].z]
         
         # calculate instantaneous bilateral angles
         raw_l = self.get_angle(l_hip, l_knee, l_ankle)
         raw_r = self.get_angle(r_hip, r_knee, r_ankle)
         
-        # blend curr measurements with historical trend
         self.prev_l = self.apply_ema(raw_l, self.prev_l)
         self.prev_r = self.apply_ema(raw_r, self.prev_r)
 
         target_angle = self.prev_l if self.injured_side == "left" else self.prev_r
 
-        # calculate center of mass
-        com_x = (lms[mp_pose.PoseLandmark.LEFT_SHOULDER.value].x + lms[mp_pose.PoseLandmark.RIGHT_SHOULDER.value].x) / 2.0
+        # calculate center of mass 
+        l_sh_x = wlms[mp_pose.PoseLandmark.LEFT_SHOULDER.value].x
+        r_sh_x = wlms[mp_pose.PoseLandmark.RIGHT_SHOULDER.value].x
+        com_x = (l_sh_x + r_sh_x) / 2.0
         bos_width = abs(r_ankle[0] - l_ankle[0])
 
         # calculate load distribution & smooth it
