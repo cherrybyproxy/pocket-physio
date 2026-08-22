@@ -120,21 +120,25 @@ def main():
                     cv2.putText(frame, "Turn so right side faces camera", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 2)
         
         elif state == "tracking":
+            inj_min = min_l if engine.injured_side == "left" else min_r
+            inj_max = max_l if engine.injured_side == "left" else max_r
+            inj_rom = (inj_max - inj_min) if (inj_max is not None and inj_min is not None) else 0
+
             if angles_valid:
                 # isolate active limb data
                 val = data.left_knee_angle if engine.injured_side == "left" else data.right_knee_angle
-                limit = min_l if engine.injured_side == "left" else min_r
+                limit = inj_min if inj_min is not None else 0
                 # evaluate threshold violation
                 color = (0, 0, 255) if val < limit + 5 else (0, 255, 0)
-                cv2.putText(frame, f"Side-on: tracking {engine.injured_side} leg", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-                cv2.putText(frame, f"knee: {int(val)} / max flex limit: {int(limit)}", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+                cv2.putText(frame, f"Tracking {engine.injured_side} leg...", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                cv2.putText(frame, f"curr: {int(val)} | max: {int(inj_max or 0)} | min: {int(inj_min or 0)} | rom: {int(inj_rom)}", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
                 cv2.putText(frame, f"load offloaded: {int(data.weight_dist)}%", (30, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
                 # flag compensatory trunk lean > 10 deg
                 lean_col = (0, 0, 255) if data.body_lean > 10.0 else (255, 255, 0)
                 cv2.putText(frame, f"trunk lean: {int(data.body_lean)} deg", (30, 160), cv2.FONT_HERSHEY_SIMPLEX, 0.6, lean_col, 2)
             else:
-                cv2.putText(frame, f"Side-on: tracking {engine.injured_side} leg", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-                cv2.putText(frame, "Low confidence — ensure leg is clearly visible", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 100, 255), 2)
+                cv2.putText(frame, f"Tracking {engine.injured_side} leg...", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                cv2.putText(frame, "Low confidence. Ensure leg is clearly visible.", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 100, 255), 2)
 
         cv2.imshow("Pocket Physio", frame)
 
