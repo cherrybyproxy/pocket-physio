@@ -18,7 +18,7 @@ def main():
 
     engine = poseengine()
 
-    min_l, max_l, min_r, max_r = 180.0, 0.0, 180.0, 0.0
+    min_l = max_l = min_r = max_r = None  # None until first valid read per side
     state = "mode_select"
     timeout_start = None # track failure detection
     countdown_start = None
@@ -65,16 +65,23 @@ def main():
         
         elif state == "auto_calibrate":
             if angles_valid:
-                # record boundary extremums only on trusted frames
-                min_l, max_l = min(min_l, data.left_knee_angle), max(max_l, data.left_knee_angle)
-                min_r, max_r = min(min_r, data.right_knee_angle), max(max_r, data.right_knee_angle)
+                # first valid read for each leg seeds both min and max (subsequent reads expand the bounds)
+                l = data.left_knee_angle
+                r = data.right_knee_angle
+                if l > 10:
+                    min_l = l if min_l is None else min(min_l, l)
+                    max_l = l if max_l is None else max(max_l, l)
+                if r > 10:
+                    min_r = r if min_r is None else min(min_r, r)
+                    max_r = r if max_r is None else max(max_r, r)
 
             cv2.putText(frame, "Face front/3/4. Move both legs. Click to lock ROMs.", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-            if angles_valid:
-                cv2.putText(frame, f"Left Max: {int(max_l)} | Min: {int(min_l)} | ROM: {int(max_l - min_l)}", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-                cv2.putText(frame, f"Right Max: {int(max_r)} | Min: {int(min_r)} | ROM: {int(max_r - min_r)}", (30, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-            else:
-                cv2.putText(frame, "Low confidence — hold still, ensure both legs visible", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 100, 255), 2)
+            l_str = f"Max: {int(max_l)} | Min: {int(min_l)} | ROM: {int(max_l - min_l)}" if min_l is not None else "waiting..."
+            r_str = f"Max: {int(max_r)} | Min: {int(min_r)} | ROM: {int(max_r - min_r)}" if min_r is not None else "waiting..."
+            cv2.putText(frame, f"Left  {l_str}", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            cv2.putText(frame, f"Right {r_str}", (30, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            if not angles_valid:
+                cv2.putText(frame, "Low confidence — hold still, ensure both legs visible", (30, 155), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 100, 255), 1)
 
         elif state == "manual_min_l":
             cv2.putText(frame, "Face LEFT side toward camera. Bend left knee. Click to lock.", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
@@ -152,7 +159,7 @@ def main():
                 state = "auto_calibrate"
         
         if clicked:
-            if state == "auto_calibrate" and angles_valid:
+            if state == "auto_calibrate" and angles_valid and None not in (min_l, max_l, min_r, max_r):
                 rom_l, rom_r = max_l - min_l, max_r - min_r
                 engine.injured_side = "left" if rom_l < rom_r else "right"
                 state = "tracking"
