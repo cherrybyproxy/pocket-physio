@@ -77,24 +77,40 @@ def main():
                 cv2.putText(frame, "Low confidence — hold still, ensure both legs visible", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 100, 255), 2)
 
         elif state == "manual_min_l":
-            cv2.putText(frame, "Face front/3/4. Bend left knee. Click to lock.", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            cv2.putText(frame, "Face LEFT side toward camera. Bend left knee. Click to lock.", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
             if angles_valid:
-                cv2.putText(frame, f"curr l: {int(data.left_knee_angle)}", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                oriented = data.near_side in ("left", "unknown")
+                if oriented:
+                    cv2.putText(frame, f"curr l: {int(data.left_knee_angle)}", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                else:
+                    cv2.putText(frame, "Turn so left side faces camera", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 2)
 
         elif state == "manual_max_l":
-            cv2.putText(frame, "Face front/3/4. Straighten left leg. Click to lock.", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            cv2.putText(frame, "Face LEFT side toward camera. Straighten left leg. Click to lock.", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
             if angles_valid:
-                cv2.putText(frame, f"curr l: {int(data.left_knee_angle)}", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                oriented = data.near_side in ("left", "unknown")
+                if oriented:
+                    cv2.putText(frame, f"curr l: {int(data.left_knee_angle)}", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                else:
+                    cv2.putText(frame, "Turn so left side faces camera", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 2)
 
         elif state == "manual_min_r":
-            cv2.putText(frame, "Face front/3/4. Bend right knee. Click to lock.", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            cv2.putText(frame, "Face RIGHT side toward camera. Bend right knee. Click to lock.", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
             if angles_valid:
-                cv2.putText(frame, f"curr r: {int(data.right_knee_angle)}", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                oriented = data.near_side in ("right", "unknown")
+                if oriented:
+                    cv2.putText(frame, f"curr r: {int(data.right_knee_angle)}", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                else:
+                    cv2.putText(frame, "Turn so right side faces camera", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 2)
 
         elif state == "manual_max_r":
-            cv2.putText(frame, "Face front/3/4. Straighten right leg. Click to lock.", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            cv2.putText(frame, "Face RIGHT side toward camera. Straighten right leg. Click to lock.", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
             if angles_valid:
-                cv2.putText(frame, f"curr r: {int(data.right_knee_angle)}", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                oriented = data.near_side in ("right", "unknown")
+                if oriented:
+                    cv2.putText(frame, f"curr r: {int(data.right_knee_angle)}", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                else:
+                    cv2.putText(frame, "Turn so right side faces camera", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 2)
         
         elif state == "tracking":
             if angles_valid:
@@ -138,24 +154,18 @@ def main():
         if clicked:
             if state == "auto_calibrate" and angles_valid:
                 rom_l, rom_r = max_l - min_l, max_r - min_r
-                # lock restricted limb state
                 engine.injured_side = "left" if rom_l < rom_r else "right"
                 state = "tracking"
-            elif state == "manual_min_l" and angles_valid:
-                # lock left flexion
+            elif state == "manual_min_l" and angles_valid and data.near_side in ("left", "unknown"):
                 min_l = data.left_knee_angle
                 state = "manual_max_l"
-                
-            elif state == "manual_max_l" and angles_valid:
-                # lock left extension
+            elif state == "manual_max_l" and angles_valid and data.near_side in ("left", "unknown"):
                 max_l = data.left_knee_angle
                 state = "manual_min_r"
-            elif state == "manual_min_r" and angles_valid:
-                # lock right flexion
+            elif state == "manual_min_r" and angles_valid and data.near_side in ("right", "unknown"):
                 min_r = data.right_knee_angle
                 state = "manual_max_r"
-            elif state == "manual_max_r" and angles_valid:
-                # lock right ext calc rom
+            elif state == "manual_max_r" and angles_valid and data.near_side in ("right", "unknown"):
                 max_r = data.right_knee_angle
                 rom_l, rom_r = max_l - min_l, max_r - min_r
                 engine.injured_side = "left" if rom_l < rom_r else "right"

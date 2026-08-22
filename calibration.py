@@ -19,6 +19,9 @@ class posestate:
     right_knee_angle: float
     weight_dist: float
     body_lean: float
+    # leg physically closer to the camera, determined by knee z-depth
+    # 'left', 'right', or 'unknown' when both knees are roughly equidistant (frontal stance)
+    near_side: str
 
 class poseengine:
     def __init__(self, injured_side: Literal["left", "right"] = "left"):
@@ -44,8 +47,7 @@ class poseengine:
 
     
     def get_angle(self, a, b, c):
-        # 2d planar angle (x,y only — dropping z eliminates depth noise that
-        # would otherwise cap a straight leg at ~165° instead of ~180°)
+        # 2d planar angle (x, y)
         a, b, c = np.array(a[:2]), np.array(b[:2]), np.array(c[:2])
         ba = a - b
         bc = c - b
@@ -92,9 +94,8 @@ class poseengine:
         r_knee = [lm_r_knee.x, lm_r_knee.y, lm_r_knee.z]
         r_ankle = [lm_r_ankle.x, lm_r_ankle.y, lm_r_ankle.z]
 
-        # per-leg visibility gate: each side updates its own EMA independently.
-        # this means a low-confidence right ankle (e.g. when sitting) won’t
-        # block the left-leg display, and vice versa.
+        # per-leg visibility gate: each side updates its own EMA independently
+        # (eg. low-confidence right ankle won’t block the left-leg display)
         if self._landmarks_visible(lm_l_hip, lm_l_knee, lm_l_ankle):
             self.prev_l = self.apply_ema(self.get_angle(l_hip, l_knee, l_ankle), self.prev_l)
         if self._landmarks_visible(lm_r_hip, lm_r_knee, lm_r_ankle):
@@ -121,10 +122,21 @@ class poseengine:
         # blend weight dist
         self.prev_w = self.apply_ema(raw_w, self.prev_w)
 
+        # determine which leg is closer to the camera using knee z-depth (smaller z = nearer)
+        # require > 5cm spread to avoid noise in frontal stance
+        knee_z_diff = lm_l_knee.z - lm_r_knee.z  # negative = left is nearer
+        if knee_z_diff < -0.05:
+            near_side = "left"
+        elif knee_z_diff > 0.05:
+            near_side = "right"
+        else:
+            near_side = "unknown"  # roughly frontal
+
         return posestate(
             target_knee_angle = target_angle,
             left_knee_angle = self.prev_l or 0.0,
             right_knee_angle = self.prev_r or 0.0,
             weight_dist = self.prev_w,
-            body_lean = 0.0
+            body_lean = 0.0,
+            near_side = near_side
         )
