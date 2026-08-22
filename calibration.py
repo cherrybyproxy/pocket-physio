@@ -44,8 +44,9 @@ class poseengine:
 
     
     def get_angle(self, a, b, c):
-        # compute planar joint angle
-        a, b, c = np.array(a), np.array(b), np.array(c)
+        # 2d planar angle (x,y only — dropping z eliminates depth noise that
+        # would otherwise cap a straight leg at ~165° instead of ~180°)
+        a, b, c = np.array(a[:2]), np.array(b[:2]), np.array(c[:2])
         ba = a - b
         bc = c - b
         cosine_angle = np.dot(ba, bc) / (np.linalg.norm(ba) * np.linalg.norm(bc))
@@ -76,45 +77,36 @@ class poseengine:
         wlms = results.pose_world_landmarks.landmark
 
         # convenience refs for the six key landmarks
-        lm_l_hip   = wlms[mp_pose.PoseLandmark.LEFT_HIP.value]
-        lm_l_knee  = wlms[mp_pose.PoseLandmark.LEFT_KNEE.value]
+        lm_l_hip = wlms[mp_pose.PoseLandmark.LEFT_HIP.value]
+        lm_l_knee = wlms[mp_pose.PoseLandmark.LEFT_KNEE.value]
         lm_l_ankle = wlms[mp_pose.PoseLandmark.LEFT_ANKLE.value]
-        lm_r_hip   = wlms[mp_pose.PoseLandmark.RIGHT_HIP.value]
-        lm_r_knee  = wlms[mp_pose.PoseLandmark.RIGHT_KNEE.value]
+        lm_r_hip = wlms[mp_pose.PoseLandmark.RIGHT_HIP.value]
+        lm_r_knee = wlms[mp_pose.PoseLandmark.RIGHT_KNEE.value]
         lm_r_ankle = wlms[mp_pose.PoseLandmark.RIGHT_ANKLE.value]
 
-        if not self._landmarks_visible(
-            lm_l_hip, lm_l_knee, lm_l_ankle,
-            lm_r_hip, lm_r_knee, lm_r_ankle
-        ):
-            # return last known state if we have one, else None
-            if self.prev_l is not None and self.prev_r is not None:
-                return posestate(
-                    target_knee_angle = self.prev_l if self.injured_side == "left" else self.prev_r,
-                    left_knee_angle   = self.prev_l,
-                    right_knee_angle  = self.prev_r,
-                    weight_dist       = self.prev_w if self.prev_w is not None else 50.0,
-                    body_lean         = 0.0
-                )
-            return None
-
-        l_hip   = [lm_l_hip.x,   lm_l_hip.y,   lm_l_hip.z]
-        l_knee  = [lm_l_knee.x,  lm_l_knee.y,  lm_l_knee.z]
+        # always extract coords (best estimate regardless of per-landmark confidence)
+        l_hip = [lm_l_hip.x, lm_l_hip.y, lm_l_hip.z]
+        l_knee = [lm_l_knee.x, lm_l_knee.y, lm_l_knee.z]
         l_ankle = [lm_l_ankle.x, lm_l_ankle.y, lm_l_ankle.z]
-        r_hip   = [lm_r_hip.x,   lm_r_hip.y,   lm_r_hip.z]
-        r_knee  = [lm_r_knee.x,  lm_r_knee.y,  lm_r_knee.z]
+        r_hip = [lm_r_hip.x, lm_r_hip.y, lm_r_hip.z]
+        r_knee = [lm_r_knee.x, lm_r_knee.y, lm_r_knee.z]
         r_ankle = [lm_r_ankle.x, lm_r_ankle.y, lm_r_ankle.z]
 
-        # calculate instantaneous bilateral angles
-        raw_l = self.get_angle(l_hip, l_knee, l_ankle)
-        raw_r = self.get_angle(r_hip, r_knee, r_ankle)
+        # per-leg visibility gate: each side updates its own EMA independently.
+        # this means a low-confidence right ankle (e.g. when sitting) won’t
+        # block the left-leg display, and vice versa.
+        if self._landmarks_visible(lm_l_hip, lm_l_knee, lm_l_ankle):
+            self.prev_l = self.apply_ema(self.get_angle(l_hip, l_knee, l_ankle), self.prev_l)
+        if self._landmarks_visible(lm_r_hip, lm_r_knee, lm_r_ankle):
+            self.prev_r = self.apply_ema(self.get_angle(r_hip, r_knee, r_ankle), self.prev_r)
 
-        self.prev_l = self.apply_ema(raw_l, self.prev_l)
-        self.prev_r = self.apply_ema(raw_r, self.prev_r)
+        # if neither leg has a trusted reading yet, return nothing
+        if self.prev_l is None and self.prev_r is None:
+            return None
 
-        target_angle = self.prev_l if self.injured_side == "left" else self.prev_r
+        target_angle = (self.prev_l or 0.0) if self.injured_side == "left" else (self.prev_r or 0.0)
 
-        # calculate center of mass 
+        # calculate center of mass
         l_sh_x = wlms[mp_pose.PoseLandmark.LEFT_SHOULDER.value].x
         r_sh_x = wlms[mp_pose.PoseLandmark.RIGHT_SHOULDER.value].x
         com_x = (l_sh_x + r_sh_x) / 2.0
@@ -131,8 +123,8 @@ class poseengine:
 
         return posestate(
             target_knee_angle = target_angle,
-            left_knee_angle = self.prev_l,
-            right_knee_angle = self.prev_r,
+            left_knee_angle = self.prev_l or 0.0,
+            right_knee_angle = self.prev_r or 0.0,
             weight_dist = self.prev_w,
             body_lean = 0.0
         )
