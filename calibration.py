@@ -8,6 +8,10 @@ mp_pose = mp.solutions.pose
 mp_drawing = mp.solutions.drawing_utils
 mp_drawing_styles = mp.solutions.drawing_styles
 
+# min per-landmark confidence to trust a frame's angle data
+# frames where any key landmark falls below this are skipped
+VISIBILITY_THRESHOLD = 0.6
+
 @dataclass
 class posestate:
     target_knee_angle: float
@@ -34,6 +38,10 @@ class poseengine:
         # 25% trust in curr frame
         self.alpha = 0.25
 
+    def _landmarks_visible(self, *lms) -> bool:
+        # true only if every supplied landmark meets VISIBILITY_THRESHOLD
+        return all(lm.visibility >= VISIBILITY_THRESHOLD for lm in lms)
+
     
     def get_angle(self, a, b, c):
         # compute planar joint angle
@@ -56,7 +64,7 @@ class poseengine:
         if not results.pose_landmarks:
             return None
 
-# draw 2d skeleton on screen
+        # draw 2d skeleton on screen
         mp_drawing.draw_landmarks(
             frame,
             results.pose_landmarks,
@@ -67,18 +75,40 @@ class poseengine:
         # use world landmarks for metric 3d math
         wlms = results.pose_world_landmarks.landmark
 
-        l_hip = [wlms[mp_pose.PoseLandmark.LEFT_HIP.value].x, wlms[mp_pose.PoseLandmark.LEFT_HIP.value].y, wlms[mp_pose.PoseLandmark.LEFT_HIP.value].z]
-        l_knee = [wlms[mp_pose.PoseLandmark.LEFT_KNEE.value].x, wlms[mp_pose.PoseLandmark.LEFT_KNEE.value].y, wlms[mp_pose.PoseLandmark.LEFT_KNEE.value].z]
-        l_ankle = [wlms[mp_pose.PoseLandmark.LEFT_ANKLE.value].x, wlms[mp_pose.PoseLandmark.LEFT_ANKLE.value].y, wlms[mp_pose.PoseLandmark.LEFT_ANKLE.value].z]
+        # convenience refs for the six key landmarks
+        lm_l_hip   = wlms[mp_pose.PoseLandmark.LEFT_HIP.value]
+        lm_l_knee  = wlms[mp_pose.PoseLandmark.LEFT_KNEE.value]
+        lm_l_ankle = wlms[mp_pose.PoseLandmark.LEFT_ANKLE.value]
+        lm_r_hip   = wlms[mp_pose.PoseLandmark.RIGHT_HIP.value]
+        lm_r_knee  = wlms[mp_pose.PoseLandmark.RIGHT_KNEE.value]
+        lm_r_ankle = wlms[mp_pose.PoseLandmark.RIGHT_ANKLE.value]
 
-        r_hip = [wlms[mp_pose.PoseLandmark.RIGHT_HIP.value].x, wlms[mp_pose.PoseLandmark.RIGHT_HIP.value].y, wlms[mp_pose.PoseLandmark.RIGHT_HIP.value].z]
-        r_knee = [wlms[mp_pose.PoseLandmark.RIGHT_KNEE.value].x, wlms[mp_pose.PoseLandmark.RIGHT_KNEE.value].y, wlms[mp_pose.PoseLandmark.RIGHT_KNEE.value].z]
-        r_ankle = [wlms[mp_pose.PoseLandmark.RIGHT_ANKLE.value].x, wlms[mp_pose.PoseLandmark.RIGHT_ANKLE.value].y, wlms[mp_pose.PoseLandmark.RIGHT_ANKLE.value].z]
-        
+        if not self._landmarks_visible(
+            lm_l_hip, lm_l_knee, lm_l_ankle,
+            lm_r_hip, lm_r_knee, lm_r_ankle
+        ):
+            # return last known state if we have one, else None
+            if self.prev_l is not None and self.prev_r is not None:
+                return posestate(
+                    target_knee_angle = self.prev_l if self.injured_side == "left" else self.prev_r,
+                    left_knee_angle   = self.prev_l,
+                    right_knee_angle  = self.prev_r,
+                    weight_dist       = self.prev_w if self.prev_w is not None else 50.0,
+                    body_lean         = 0.0
+                )
+            return None
+
+        l_hip   = [lm_l_hip.x,   lm_l_hip.y,   lm_l_hip.z]
+        l_knee  = [lm_l_knee.x,  lm_l_knee.y,  lm_l_knee.z]
+        l_ankle = [lm_l_ankle.x, lm_l_ankle.y, lm_l_ankle.z]
+        r_hip   = [lm_r_hip.x,   lm_r_hip.y,   lm_r_hip.z]
+        r_knee  = [lm_r_knee.x,  lm_r_knee.y,  lm_r_knee.z]
+        r_ankle = [lm_r_ankle.x, lm_r_ankle.y, lm_r_ankle.z]
+
         # calculate instantaneous bilateral angles
         raw_l = self.get_angle(l_hip, l_knee, l_ankle)
         raw_r = self.get_angle(r_hip, r_knee, r_ankle)
-        
+
         self.prev_l = self.apply_ema(raw_l, self.prev_l)
         self.prev_r = self.apply_ema(raw_r, self.prev_r)
 
