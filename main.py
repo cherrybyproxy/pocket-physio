@@ -1,5 +1,6 @@
 import cv2
 from calibration import poseengine
+from kinematics import KinematicsTracker
 import time
 
 def main():
@@ -17,6 +18,7 @@ def main():
     FRAME_TIME = 1.0 / TARGET_FPS  # seconds per frame budget
 
     engine = poseengine()
+    tracker = KinematicsTracker(injured_side="left")
 
     min_l = max_l = min_r = max_r = None  # None until first valid read per side
     state = "mode_select"
@@ -122,47 +124,8 @@ def main():
                     cv2.putText(frame, "Turn so right side faces camera", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 2)
         
         elif state == "tracking":
-            inj_min = min_l if engine.injured_side == "left" else min_r
-            inj_max = max_l if engine.injured_side == "left" else max_r
-            inj_rom = (inj_max - inj_min) if (inj_max is not None and inj_min is not None) else 0
-
-            if angles_valid:
-                # isolate active limb data
-                val = data.left_knee_angle if engine.injured_side == "left" else data.right_knee_angle
-                # evaluate min/max threshold violation
-                violated = (inj_min is not None and val < inj_min) or (inj_max is not None and val > inj_max)
-                color = (0, 0, 255) if violated else (0, 255, 0)
-                cv2.putText(frame, f"Tracking {engine.injured_side} leg...", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-                cv2.putText(frame, f"curr: {int(val)} | max: {int(inj_max or 0)} | min: {int(inj_min or 0)} | rom: {int(inj_rom)}", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-                
-                # load distribution: % on injured vs % on healthy leg
-                inj_load = int(data.weight_dist)
-                healthy_load = 100 - inj_load
-                cv2.putText(frame, f"load: {inj_load}% on injured | {healthy_load}% on healthy", (30, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
-                
-                # trunk lean evaluation
-                # - red if leaning toward injured side (> 2 deg) or leaning toward healthy side exceeding clinical threshold (> 10 deg)
-                # - yellow if acceptable mild offloading compensation (<= 10 deg toward healthy side)
-                # - green if upright / centered (<= 2 deg)
-                lean_val = int(data.body_lean)
-                if data.lean_direction == "injured" and lean_val >= 2:
-                    lean_col = (0, 0, 255) # RED
-                    lean_txt = f"trunk lean: {lean_val} deg toward INJURED (Alert: overload)"
-                elif data.lean_direction == "healthy":
-                    if lean_val > 10:
-                        lean_col = (0, 0, 255) # RED (exceeds medical threshold -> lower back strain)
-                        lean_txt = f"trunk lean: {lean_val} deg toward healthy (>10 deg back strain risk!)"
-                    else:
-                        lean_col = (0, 255, 255) # YELLOW (acceptable mild offload)
-                        lean_txt = f"trunk lean: {lean_val} deg toward healthy (mild offload)"
-                else:
-                    lean_col = (0, 255, 0) # GREEN (upright)
-                    lean_txt = f"trunk lean: {lean_val} deg (centered/upright)"
-
-                cv2.putText(frame, lean_txt, (30, 160), cv2.FONT_HERSHEY_SIMPLEX, 0.6, lean_col, 2)
-            else:
-                cv2.putText(frame, f"Tracking {engine.injured_side} leg...", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-                cv2.putText(frame, "Low confidence. Ensure leg is clearly visible.", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 100, 255), 2)
+            # Post-calibration kinematics tracking handled in kinematics.py
+            tracker.render_hud(frame, data, angles_valid)
 
         cv2.imshow("Pocket Physio", frame)
 
@@ -195,7 +158,13 @@ def main():
                 rom_l, rom_r = max_l - min_l, max_r - min_r
                 engine.injured_side = "left" if rom_l < rom_r else "right"
                 engine.reset_filters()
+                
+                inj_min = min_l if engine.injured_side == "left" else min_r
+                inj_max = max_l if engine.injured_side == "left" else max_r
+                tracker.injured_side = engine.injured_side
+                tracker.update_limits(inj_min, inj_max)
                 state = "tracking"
+
             elif state == "manual_min_l" and angles_valid and data.near_side in ("left", "unknown"):
                 min_l = data.left_knee_angle
                 state = "manual_max_l"
@@ -210,7 +179,13 @@ def main():
                 rom_l, rom_r = max_l - min_l, max_r - min_r
                 engine.injured_side = "left" if rom_l < rom_r else "right"
                 engine.reset_filters()
+                
+                inj_min = min_l if engine.injured_side == "left" else min_r
+                inj_max = max_l if engine.injured_side == "left" else max_r
+                tracker.injured_side = engine.injured_side
+                tracker.update_limits(inj_min, inj_max)
                 state = "tracking"
+
             clicked = False
 
         elif key == ord('q'): break
