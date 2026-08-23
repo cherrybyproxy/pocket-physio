@@ -25,6 +25,10 @@ class posestate:
     lean_direction: str
     # Leg physically closer to the camera, determined by knee z-depth ('left', 'right', 'unknown')
     near_side: str
+    # per-leg confidence: False when any key landmark (hip/knee/ankle) falls below VISIBILITY_THRESHOLD
+    # when False, knee_angle for that leg is a stale frozen EMA value, do not use for calibration
+    left_visible: bool
+    right_visible: bool
 
 class poseengine:
     def __init__(self, injured_side: Literal["left", "right"] = "left"):
@@ -133,10 +137,12 @@ class poseengine:
 
         # per-leg visibility gate: each side updates its own EMA independently
         # uses 3D angles when in frontal view for true sagittal flexion, and 2D when side-on
-        if self._landmarks_visible(lm_l_hip, lm_l_knee, lm_l_ankle):
+        l_visible = self._landmarks_visible(lm_l_hip, lm_l_knee, lm_l_ankle)
+        r_visible = self._landmarks_visible(lm_r_hip, lm_r_knee, lm_r_ankle)
+        if l_visible:
             angle_l = self.get_angle(l_hip, l_knee, l_ankle, is_frontal=is_frontal)
             self.prev_l = self.apply_ema(angle_l, self.prev_l)
-        if self._landmarks_visible(lm_r_hip, lm_r_knee, lm_r_ankle):
+        if r_visible:
             angle_r = self.get_angle(r_hip, r_knee, r_ankle, is_frontal=is_frontal)
             self.prev_r = self.apply_ema(angle_r, self.prev_r)
 
@@ -170,7 +176,7 @@ class poseengine:
         norm = np.linalg.norm(trunk_vec)
         raw_body_lean = float(np.degrees(np.arccos(np.clip(np.dot(trunk_vec, vertical) / norm, -1.0, 1.0)))) if norm > 0 else 0.0
 
-        # Determine lean direction relative to injured side
+        # determine lean direction relative to injured side
         lateral_shift = trunk_vec[0] # positive = subject's left, negative = subject's right
         if abs(lateral_shift) < 0.015 or raw_body_lean < 2.0:
             lean_direction = "centered"
@@ -187,5 +193,7 @@ class poseengine:
             weight_dist = self.prev_w,
             body_lean = self.prev_lean if self.prev_lean is not None else 0.0,
             lean_direction = lean_direction,
-            near_side = near_side
+            near_side = near_side,
+            left_visible = l_visible,
+            right_visible = r_visible
         )

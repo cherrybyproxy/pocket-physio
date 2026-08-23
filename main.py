@@ -69,23 +69,31 @@ def main():
         
         elif state == "auto_calibrate":
             if angles_valid:
-                # first valid read for each leg seeds both min and max (subsequent reads expand the bounds)
-                l = data.left_knee_angle
-                r = data.right_knee_angle
-                if l > 10:
-                    min_l = l if min_l is None else min(min_l, l)
-                    max_l = l if max_l is None else max(max_l, l)
-                if r > 10:
-                    min_r = r if min_r is None else min(min_r, r)
-                    max_r = r if max_r is None else max(max_r, r)
+                # only update bounds when that leg's landmarks are confident
+                # prevents stale frozen EMA from silently expanding min/max
+                if data.left_visible:
+                    l = data.left_knee_angle
+                    if l > 10:
+                        min_l = l if min_l is None else min(min_l, l)
+                        max_l = l if max_l is None else max(max_l, l)
+                if data.right_visible:
+                    r = data.right_knee_angle
+                    if r > 10:
+                        min_r = r if min_r is None else min(min_r, r)
+                        max_r = r if max_r is None else max(max_r, r)
 
             cv2.putText(frame, "Face frontal. Move both legs through ROM. Click to lock.", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-            l_str = f"Max: {int(max_l)} | Min: {int(min_l)} | ROM: {int(max_l - min_l)}" if min_l is not None else "waiting..."
-            r_str = f"Max: {int(max_r)} | Min: {int(min_r)} | ROM: {int(max_r - min_r)}" if min_r is not None else "waiting..."
+            if angles_valid:
+                # show "--" when leg is out of frame (stale frozen value)
+                cl = int(data.left_knee_angle) if (data.left_visible and data.left_knee_angle > 10) else "--"
+                cr = int(data.right_knee_angle) if (data.right_visible and data.right_knee_angle > 10) else "--"
+                l_str = f"curr: {cl} | max: {int(max_l)} | min: {int(min_l)} | rom: {int(max_l - min_l)}" if min_l is not None else f"curr: {cl} | waiting..."
+                r_str = f"curr: {cr} | max: {int(max_r)} | min: {int(min_r)} | rom: {int(max_r - min_r)}" if min_r is not None else f"curr: {cr} | waiting..."
+            else:
+                l_str = r_str = "waiting..."
+                cv2.putText(frame, "Low confidence. Hold still, ensure both legs visible", (30, 155), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 100, 255), 1)
             cv2.putText(frame, f"Left  {l_str}", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
             cv2.putText(frame, f"Right {r_str}", (30, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-            if not angles_valid:
-                cv2.putText(frame, "Low confidence — hold still, ensure both legs visible", (30, 155), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 100, 255), 1)
 
         elif state == "manual_min_l":
             cv2.putText(frame, "Face LEFT side toward camera. Bend left knee. Click to lock.", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
@@ -124,7 +132,7 @@ def main():
                     cv2.putText(frame, "Turn so right side faces camera", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 2)
         
         elif state == "tracking":
-            # Post-calibration kinematics tracking handled in kinematics.py
+            # post-calibration kinematics tracking handled in kinematics.py
             tracker.render_hud(frame, data, angles_valid)
 
         cv2.imshow("Pocket Physio", frame)
@@ -143,6 +151,7 @@ def main():
                 countdown_start = time.time()
                 min_l = max_l = min_r = max_r = None
                 engine.reset_filters()
+                engine.alpha = 0.6  # faster response during calibration
                 state = "auto_calibrate_countdown"
             elif key == ord('m'):
                 min_l = max_l = min_r = max_r = None
@@ -157,6 +166,7 @@ def main():
             if state == "auto_calibrate" and angles_valid and None not in (min_l, max_l, min_r, max_r):
                 rom_l, rom_r = max_l - min_l, max_r - min_r
                 engine.injured_side = "left" if rom_l < rom_r else "right"
+                engine.alpha = 0.25  # restore smooth tracking alpha
                 engine.reset_filters()
                 
                 inj_min = min_l if engine.injured_side == "left" else min_r

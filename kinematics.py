@@ -76,14 +76,19 @@ class KinematicsTracker:
             lean_text=lean_text
         )
 
-    def render_hud(self, frame, data: Optional[posestate], angles_valid: bool):
-        """Render tracking HUD on the camera frame."""
+    def render_hud(self, frame, data, angles_valid: bool):
+        # render tracking HUD on the camera frame
         cv2.putText(frame, f"Tracking {self.injured_side} leg...", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
-        if angles_valid and data is not None:
+        # check per-leg visibility for the injured side specifically
+        inj_visible = (data.left_visible if self.injured_side == "left" else data.right_visible) if (angles_valid and data is not None) else False
+
+        if angles_valid and data is not None and inj_visible:
             feedback = self.evaluate(data)
             cv2.putText(frame, f"curr: {int(feedback.current_angle)} | max: {int(feedback.max_angle)} | min: {int(feedback.min_angle)} | rom: {int(feedback.rom)}", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, feedback.angle_color, 2)
             cv2.putText(frame, f"load: {feedback.injured_load}% on injured | {feedback.healthy_load}% on healthy", (30, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
             cv2.putText(frame, feedback.lean_text, (30, 160), cv2.FONT_HERSHEY_SIMPLEX, 0.6, feedback.lean_color, 2)
+        elif angles_valid and data is not None and not inj_visible:
+            cv2.putText(frame, "Injured leg out of frame. Ensure ankle is visible.", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 100, 255), 2)
         else:
             cv2.putText(frame, "Low confidence. Ensure leg is clearly visible.", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 100, 255), 2)
