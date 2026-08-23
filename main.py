@@ -129,9 +129,9 @@ def main():
             if angles_valid:
                 # isolate active limb data
                 val = data.left_knee_angle if engine.injured_side == "left" else data.right_knee_angle
-                limit = inj_min if inj_min is not None else 0
-                # evaluate threshold violation
-                color = (0, 0, 255) if val < limit + 5 else (0, 255, 0)
+                # evaluate min/max threshold violation
+                violated = (inj_min is not None and val < inj_min) or (inj_max is not None and val > inj_max)
+                color = (0, 0, 255) if violated else (0, 255, 0)
                 cv2.putText(frame, f"Tracking {engine.injured_side} leg...", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
                 cv2.putText(frame, f"curr: {int(val)} | max: {int(inj_max or 0)} | min: {int(inj_min or 0)} | rom: {int(inj_rom)}", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
                 
