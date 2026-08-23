@@ -49,19 +49,21 @@ def main():
 
         timeout_start = None # reset
 
-        data = engine.process_frame(frame) # mediapipe processes unflipped frame
+        # frontal 3D angle calculation for auto-calibration; use 2D planar angle for side-on manual calibration and tracking
+        is_frontal = state.startswith("auto_calibrate") or state == "mode_select"
+        data = engine.process_frame(frame, is_frontal=is_frontal)
 
         frame = cv2.flip(frame, 1) # flip frame
 
         angles_valid = data is not None
 
         if state == "mode_select":
-            cv2.putText(frame, "Press 'a' for auto-calibration or 'm' for manual calibration", (30,40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            cv2.putText(frame, "Press 'a' for auto-calibration (frontal) or 'm' for manual (side-on)", (30,40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
         elif state == "auto_calibrate_countdown":
             elapsed = time.time() - countdown_start
             remaining = max(0, int(CALIB_DELAY - elapsed + 1))
-            cv2.putText(frame, f"Face camera front/3/4. Calibration begins in {remaining}s", (30,40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 165, 255), 2)
+            cv2.putText(frame, f"Face camera frontal. Calibration begins in {remaining}s", (30,40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 165, 255), 2)
         
         elif state == "auto_calibrate":
             if angles_valid:
@@ -75,7 +77,7 @@ def main():
                     min_r = r if min_r is None else min(min_r, r)
                     max_r = r if max_r is None else max(max_r, r)
 
-            cv2.putText(frame, "Face front/3/4. Move both legs. Click to lock ROMs.", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            cv2.putText(frame, "Face frontal. Move both legs through ROM. Click to lock.", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
             l_str = f"Max: {int(max_l)} | Min: {int(min_l)} | ROM: {int(max_l - min_l)}" if min_l is not None else "waiting..."
             r_str = f"Max: {int(max_r)} | Min: {int(min_r)} | ROM: {int(max_r - min_r)}" if min_r is not None else "waiting..."
             cv2.putText(frame, f"Left  {l_str}", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
@@ -132,10 +134,32 @@ def main():
                 color = (0, 0, 255) if val < limit + 5 else (0, 255, 0)
                 cv2.putText(frame, f"Tracking {engine.injured_side} leg...", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
                 cv2.putText(frame, f"curr: {int(val)} | max: {int(inj_max or 0)} | min: {int(inj_min or 0)} | rom: {int(inj_rom)}", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-                cv2.putText(frame, f"load offloaded: {int(data.weight_dist)}%", (30, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
-                # flag compensatory trunk lean > 10 deg
-                lean_col = (0, 0, 255) if data.body_lean > 10.0 else (255, 255, 0)
-                cv2.putText(frame, f"trunk lean: {int(data.body_lean)} deg", (30, 160), cv2.FONT_HERSHEY_SIMPLEX, 0.6, lean_col, 2)
+                
+                # load distribution: % on injured vs % on healthy leg
+                inj_load = int(data.weight_dist)
+                healthy_load = 100 - inj_load
+                cv2.putText(frame, f"load: {inj_load}% on injured | {healthy_load}% on healthy", (30, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+                
+                # trunk lean evaluation
+                # - red if leaning toward injured side (> 2 deg) or leaning toward healthy side exceeding clinical threshold (> 10 deg)
+                # - yellow if acceptable mild offloading compensation (<= 10 deg toward healthy side)
+                # - green if upright / centered (<= 2 deg)
+                lean_val = int(data.body_lean)
+                if data.lean_direction == "injured" and lean_val >= 2:
+                    lean_col = (0, 0, 255) # RED
+                    lean_txt = f"trunk lean: {lean_val} deg toward INJURED (Alert: overload)"
+                elif data.lean_direction == "healthy":
+                    if lean_val > 10:
+                        lean_col = (0, 0, 255) # RED (exceeds medical threshold -> lower back strain)
+                        lean_txt = f"trunk lean: {lean_val} deg toward healthy (>10 deg back strain risk!)"
+                    else:
+                        lean_col = (0, 255, 255) # YELLOW (acceptable mild offload)
+                        lean_txt = f"trunk lean: {lean_val} deg toward healthy (mild offload)"
+                else:
+                    lean_col = (0, 255, 0) # GREEN (upright)
+                    lean_txt = f"trunk lean: {lean_val} deg (centered/upright)"
+
+                cv2.putText(frame, lean_txt, (30, 160), cv2.FONT_HERSHEY_SIMPLEX, 0.6, lean_col, 2)
             else:
                 cv2.putText(frame, f"Tracking {engine.injured_side} leg...", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
                 cv2.putText(frame, "Low confidence. Ensure leg is clearly visible.", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 100, 255), 2)
@@ -154,8 +178,12 @@ def main():
         if state == "mode_select":
             if key == ord('a'):
                 countdown_start = time.time()
+                min_l = max_l = min_r = max_r = None
+                engine.reset_filters()
                 state = "auto_calibrate_countdown"
             elif key == ord('m'):
+                min_l = max_l = min_r = max_r = None
+                engine.reset_filters()
                 state = "manual_min_l"
 
         if state == "auto_calibrate_countdown":
@@ -166,6 +194,7 @@ def main():
             if state == "auto_calibrate" and angles_valid and None not in (min_l, max_l, min_r, max_r):
                 rom_l, rom_r = max_l - min_l, max_r - min_r
                 engine.injured_side = "left" if rom_l < rom_r else "right"
+                engine.reset_filters()
                 state = "tracking"
             elif state == "manual_min_l" and angles_valid and data.near_side in ("left", "unknown"):
                 min_l = data.left_knee_angle
@@ -180,6 +209,7 @@ def main():
                 max_r = data.right_knee_angle
                 rom_l, rom_r = max_l - min_l, max_r - min_r
                 engine.injured_side = "left" if rom_l < rom_r else "right"
+                engine.reset_filters()
                 state = "tracking"
             clicked = False
 
