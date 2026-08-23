@@ -131,12 +131,21 @@ class poseengine:
             near_side = "right"
         else:
             near_side = "unknown"  # roughly frontal
+        
+        l_sh = wlms[mp_pose.PoseLandmark.LEFT_SHOULDER.value]
+        r_sh = wlms[mp_pose.PoseLandmark.RIGHT_SHOULDER.value]
+        mid_sh = np.array([(l_sh.x+r_sh.x)/2, (l_sh.y+r_sh.y)/2])
+        mid_hip = np.array([(l_hip[0]+r_hip[0])/2, (l_hip[1]+r_hip[1])/2])
+        trunk_vec = mid_sh - mid_hip
+        vertical = np.array([0,-1]) # sign check against y-axis convention
+        norm = np.linalg.norm(trunk_vec)
+        body_lean = np.degrees(np.arccos(np.clip(np.dot(trunk_vec, vertical)/norm, -1.0, 1.0))) if norm > 0 else 0.0
 
         return posestate(
             target_knee_angle = target_angle,
             left_knee_angle = self.prev_l or 0.0,
             right_knee_angle = self.prev_r or 0.0,
             weight_dist = self.prev_w,
-            body_lean = 0.0,
+            body_lean = body_lean,
             near_side = near_side
         )
