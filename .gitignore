@@ -1,3 +1,28 @@
+# python
 /venv/
 __pycache__/
 .DS_Store
+
+# node
+node_modules/
+dist/
+.env
+*.env.local
+
+# prisma
+generated/
+
+# build artifacts
+frontend/dist/
+backend/dist/
+
+# ide / tool-generated folders (prisma init, windsurf, claude, etc.)
+.agents/
+.claude/
+.windsurf/
+skills-lock.json
+.vscode/
+.idea/
+
+# misc
+*.log

@@ -1,0 +1,21 @@
+# dependencies
+node_modules/
+
+# environment variables — never commit secrets
+.env
+.env.*
+
+# prisma generated client
+/generated/
+
+# build output
+dist/
+
+# ide-generated folders from prisma init and other tools
+.agents/
+.claude/
+.windsurf/
+skills-lock.json
+
+# misc
+*.log

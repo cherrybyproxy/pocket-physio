@@ -1,0 +1,35 @@
+// prisma schema for pocket physio
+// user accounts and therapy session records
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  createdAt    DateTime  @default(now())
+  sessions     Session[]
+}
+
+model Session {
+  id          String   @id @default(uuid())
+  userId      String
+  date        String   // iso date string (yyyy-mm-dd)
+  time        String   // military time with timezone, e.g. "19:30 EDT"
+  injuredSide String   // "left" | "right"
+  minAngle    Int      // minimum angle reached
+  maxAngle    Int      // maximum angle reached
+  rom         Int      // range of motion (max - min)
+  bodyLeanMax Int      @default(0)
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
