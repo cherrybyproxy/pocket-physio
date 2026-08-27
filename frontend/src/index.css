@@ -38,6 +38,8 @@
 
 html, body, #root {
   height: 100%;
+  height: 100dvh;
+  overflow: hidden;
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   background: var(--bg-primary);
   color: var(--text-primary);
@@ -52,19 +54,21 @@ body {
 .app-shell {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100%;
+  height: 100dvh;
+  width: 100%;
+  overflow: hidden;
 }
 
 /* ── top nav ── */
 .top-nav {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.75rem 2rem;
+  padding: 0.55rem 1.5rem;
   background: var(--bg-primary);
   border-bottom: 1px solid var(--border-subtle);
-  position: sticky;
-  top: 0;
   z-index: 100;
 }
 
@@ -117,10 +121,12 @@ body {
 /* ── main content ── */
 .main-content {
   flex: 1;
+  min-height: 0;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
-  padding: 1.5rem 1rem;
+  padding: 0.5rem 1rem;
+  overflow: hidden;
 }
 
 /* ── clean card surface ── */
@@ -128,7 +134,7 @@ body {
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
-  padding: 1.75rem;
+  padding: 1.5rem;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
 
@@ -137,17 +143,20 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1rem;
-  width: 100%;
-  max-width: 1040px;
+  justify-content: center;
+  gap: 0.5rem;
+  width: min(calc((100dvh - 125px) * 4 / 3), calc(100vw - 2rem), 1040px);
+  max-width: 100%;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
 }
 
 /* ── camera view ── */
 .camera-container {
   position: relative;
   width: 100%;
-  max-width: 1040px;
-  min-height: 480px;
+  aspect-ratio: 4 / 3;
   background: #000000;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
@@ -155,6 +164,10 @@ body {
   cursor: pointer;
   outline: none;
   transition: border-color var(--transition), box-shadow var(--transition);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .camera-container:focus,
@@ -170,8 +183,7 @@ body {
 .camera-container video {
   display: block;
   width: 100%;
-  height: auto;
-  aspect-ratio: 4 / 3;
+  height: 100%;
   object-fit: cover;
   transform: scaleX(-1);
   background: #000000;
@@ -188,11 +200,11 @@ body {
 
 /* ── session controls action bar ── */
 .session-controls {
+  flex-shrink: 0;
   width: 100%;
-  max-width: 1040px;
-  min-height: 56px;
+  height: 52px;
   box-sizing: border-box;
-  padding: 0.85rem 1.25rem;
+  padding: 0 0.75rem;
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
@@ -431,15 +443,19 @@ body {
 .history-page {
   width: 100%;
   max-width: 900px;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .history-header {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 0.75rem;
-  margin-bottom: 1.25rem;
+  margin-bottom: 1rem;
 }
 
 .history-header h2 {
@@ -464,7 +480,10 @@ body {
 }
 
 .session-table-wrapper {
+  overflow-y: auto;
   overflow-x: auto;
+  flex: 1;
+  min-height: 0;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
   background: var(--bg-secondary);
