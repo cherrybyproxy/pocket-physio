@@ -42,6 +42,15 @@ export default function CalibrationFlow() {
   // session tracking for summary
   const sessionMaxLean = useRef(0);
 
+  // reset all session and calibration state back to mode selection screen
+  const resetSession = useCallback(() => {
+    minL.current = maxL.current = minR.current = maxR.current = null;
+    engineRef.current.resetFilters();
+    sessionMaxLean.current = 0;
+    trackerRef.current.updateLimits(null, null);
+    setState("mode_select");
+  }, []);
+
   // start auto calibration flow
   const startAutoCalib = useCallback(() => {
     countdownStart.current = performance.now();
@@ -107,15 +116,20 @@ export default function CalibrationFlow() {
     if (state === "mode_select") {
       startAutoCalib();
     } else if (state === "auto_calibrate") {
-      // determine bounds, falling back gracefully to sensible defaults if unobserved
-      const lMin = minL.current ?? (pose?.leftKneeAngle ? pose.leftKneeAngle - 10 : 80);
-      const lMax = maxL.current ?? (pose?.leftKneeAngle ? pose.leftKneeAngle + 10 : 160);
-      const rMin = minR.current ?? (pose?.rightKneeAngle ? pose.rightKneeAngle - 10 : 80);
-      const rMax = maxR.current ?? (pose?.rightKneeAngle ? pose.rightKneeAngle + 10 : 160);
+      const lMin = minL.current;
+      const lMax = maxL.current;
+      const rMin = minR.current;
+      const rMax = maxR.current;
 
-      const romL = lMax - lMin;
-      const romR = rMax - rMin;
-      engine.injuredSide = romL < romR ? "left" : "right";
+      // if neither leg has valid observed calibration range, reset to mode select
+      if ((lMin === null || lMax === null) && (rMin === null || rMax === null)) {
+        resetSession();
+        return;
+      }
+
+      const romL = (lMax !== null && lMin !== null) ? lMax - lMin : -1;
+      const romR = (rMax !== null && rMin !== null) ? rMax - rMin : -1;
+      engine.injuredSide = (romL >= 0 && (romR < 0 || romL < romR)) ? "left" : "right";
       engine.alpha = 0.25;
       engine.resetFilters();
 
@@ -126,31 +140,47 @@ export default function CalibrationFlow() {
       sessionMaxLean.current = 0;
       setState("tracking");
     } else if (state === "manual_min_l") {
-      minL.current = pose ? pose.leftKneeAngle : 90;
+      minL.current = pose ? pose.leftKneeAngle : null;
       setState("manual_max_l");
     } else if (state === "manual_max_l") {
-      maxL.current = pose ? pose.leftKneeAngle : 160;
+      maxL.current = pose ? pose.leftKneeAngle : null;
       setState("manual_min_r");
     } else if (state === "manual_min_r") {
-      minR.current = pose ? pose.rightKneeAngle : 90;
+      minR.current = pose ? pose.rightKneeAngle : null;
       setState("manual_max_r");
     } else if (state === "manual_max_r") {
-      maxR.current = pose ? pose.rightKneeAngle : 160;
-      const romL = (maxL.current ?? 160) - (minL.current ?? 90);
-      const romR = (maxR.current ?? 160) - (minR.current ?? 90);
-      engine.injuredSide = romL < romR ? "left" : "right";
+      maxR.current = pose ? pose.rightKneeAngle : null;
+      const lMin = minL.current;
+      const lMax = maxL.current;
+      const rMin = minR.current;
+      const rMax = maxR.current;
+
+      if ((lMin === null || lMax === null) && (rMin === null || rMax === null)) {
+        resetSession();
+        return;
+      }
+
+      const romL = (lMax !== null && lMin !== null) ? lMax - lMin : -1;
+      const romR = (rMax !== null && rMin !== null) ? rMax - rMin : -1;
+      engine.injuredSide = (romL >= 0 && (romR < 0 || romL < romR)) ? "left" : "right";
       engine.resetFilters();
 
-      const injMin = engine.injuredSide === "left" ? minL.current : minR.current;
-      const injMax = engine.injuredSide === "left" ? maxL.current : maxR.current;
+      const injMin = engine.injuredSide === "left" ? lMin : rMin;
+      const injMax = engine.injuredSide === "left" ? lMax : rMax;
       tracker.injuredSide = engine.injuredSide;
       tracker.updateLimits(injMin, injMax);
       sessionMaxLean.current = 0;
       setState("tracking");
     } else if (state === "tracking") {
-      setState("session_end");
+      const injMin = tracker.injuredSide === "left" ? minL.current : minR.current;
+      const injMax = tracker.injuredSide === "left" ? maxL.current : maxR.current;
+      if (injMin !== null && injMax !== null) {
+        setState("session_end");
+      } else {
+        resetSession();
+      }
     }
-  }, [state, startAutoCalib]);
+  }, [state, startAutoCalib, resetSession]);
 
   // keyboard handler for mode selection & step locking
   useEffect(() => {
@@ -160,6 +190,20 @@ export default function CalibrationFlow() {
         document.activeElement?.tagName === "INPUT" ||
         document.activeElement?.tagName === "TEXTAREA"
       ) {
+        return;
+      }
+
+      if (e.key === "q" || e.key === "Q") {
+        const tracker = trackerRef.current;
+        const injMin = tracker.injuredSide === "left" ? minL.current : minR.current;
+        const injMax = tracker.injuredSide === "left" ? maxL.current : maxR.current;
+        const hasRealResults = state === "tracking" && injMin !== null && injMax !== null;
+
+        if (hasRealResults) {
+          setState("session_end");
+        } else {
+          resetSession();
+        }
         return;
       }
 
@@ -177,14 +221,12 @@ export default function CalibrationFlow() {
           e.preventDefault();
           handleLockOrAdvance();
         }
-      } else if (state === "tracking" && (e.key === "q" || e.key === "Q")) {
-        setState("session_end");
       }
     }
 
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [state, startAutoCalib, startManualCalib, handleLockOrAdvance]);
+  }, [state, startAutoCalib, startManualCalib, handleLockOrAdvance, resetSession]);
 
   // per-frame callback: update calibration accumulators during auto-calibrate
   const onFrame = useCallback(
@@ -250,6 +292,15 @@ export default function CalibrationFlow() {
         drawHudText(
           ctx,
           "Or use the control buttons below",
+          24,
+          y,
+          "rgba(255,255,255,0.7)",
+          Math.round(fontSize * 0.85)
+        );
+        y += lineGap;
+        drawHudText(
+          ctx,
+          "Press 'Q' to quit",
           24,
           y,
           "rgba(255,255,255,0.7)",
@@ -488,8 +539,15 @@ export default function CalibrationFlow() {
 
   if (state === "session_end") {
     const tracker = trackerRef.current;
-    const injMin = tracker.injuredSide === "left" ? (minL.current ?? 90) : (minR.current ?? 90);
-    const injMax = tracker.injuredSide === "left" ? (maxL.current ?? 160) : (maxR.current ?? 160);
+    const injMin = tracker.injuredSide === "left" ? minL.current : minR.current;
+    const injMax = tracker.injuredSide === "left" ? maxL.current : maxR.current;
+
+    // if no real recorded results, reset back to mode selection screen
+    if (injMin === null || injMax === null) {
+      resetSession();
+      return null;
+    }
+
     const injRom = Math.max(0, injMax - injMin);
 
     return (
@@ -499,12 +557,7 @@ export default function CalibrationFlow() {
         maxAngle={Math.round(injMax)}
         rom={Math.round(injRom)}
         bodyLeanMax={Math.round(sessionMaxLean.current)}
-        onNewSession={() => {
-          minL.current = maxL.current = minR.current = maxR.current = null;
-          engineRef.current.resetFilters();
-          sessionMaxLean.current = 0;
-          setState("mode_select");
-        }}
+        onNewSession={resetSession}
       />
     );
   }
@@ -559,7 +612,7 @@ export default function CalibrationFlow() {
             </button>
             <button
               className="btn btn-secondary"
-              onClick={() => setState("mode_select")}
+              onClick={resetSession}
             >
               Reset Mode
             </button>
@@ -577,7 +630,7 @@ export default function CalibrationFlow() {
             </button>
             <button
               className="btn btn-secondary"
-              onClick={() => setState("mode_select")}
+              onClick={resetSession}
             >
               Cancel
             </button>
@@ -589,16 +642,22 @@ export default function CalibrationFlow() {
             <button
               id="end-session-btn"
               className="btn btn-primary"
-              onClick={() => setState("session_end")}
+              onClick={() => {
+                const tracker = trackerRef.current;
+                const injMin = tracker.injuredSide === "left" ? minL.current : minR.current;
+                const injMax = tracker.injuredSide === "left" ? maxL.current : maxR.current;
+                if (injMin !== null && injMax !== null) {
+                  setState("session_end");
+                } else {
+                  resetSession();
+                }
+              }}
             >
               End Session [Q]
             </button>
             <button
               className="btn btn-secondary"
-              onClick={() => {
-                engineRef.current.resetFilters();
-                setState("mode_select");
-              }}
+              onClick={resetSession}
             >
               Recalibrate
             </button>
