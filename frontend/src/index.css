@@ -118,7 +118,7 @@ body {
 .main-content {
   flex: 1;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   padding: 1.5rem 1rem;
 }
@@ -154,10 +154,17 @@ body {
   overflow: hidden;
   cursor: pointer;
   outline: none;
+  transition: border-color var(--transition), box-shadow var(--transition);
 }
 
+.camera-container:focus,
 .camera-container:focus-visible {
+  outline: none;
+}
+
+.camera-container.active-session {
   border-color: var(--accent);
+  box-shadow: 0 0 16px rgba(192, 132, 252, 0.15);
 }
 
 .camera-container video {
@@ -183,6 +190,8 @@ body {
 .session-controls {
   width: 100%;
   max-width: 1040px;
+  min-height: 56px;
+  box-sizing: border-box;
   padding: 0.85rem 1.25rem;
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);

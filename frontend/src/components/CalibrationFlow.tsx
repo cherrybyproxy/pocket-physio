@@ -116,20 +116,22 @@ export default function CalibrationFlow() {
     if (state === "mode_select") {
       startAutoCalib();
     } else if (state === "auto_calibrate") {
+      if (
+        minL.current === null ||
+        maxL.current === null ||
+        minR.current === null ||
+        maxR.current === null
+      ) {
+        return;
+      }
       const lMin = minL.current;
       const lMax = maxL.current;
       const rMin = minR.current;
       const rMax = maxR.current;
 
-      // if neither leg has valid observed calibration range, reset to mode select
-      if ((lMin === null || lMax === null) && (rMin === null || rMax === null)) {
-        resetSession();
-        return;
-      }
-
-      const romL = (lMax !== null && lMin !== null) ? lMax - lMin : -1;
-      const romR = (rMax !== null && rMin !== null) ? rMax - rMin : -1;
-      engine.injuredSide = (romL >= 0 && (romR < 0 || romL < romR)) ? "left" : "right";
+      const romL = lMax - lMin;
+      const romR = rMax - rMin;
+      engine.injuredSide = romL < romR ? "left" : "right";
       engine.alpha = 0.25;
       engine.resetFilters();
 
@@ -140,47 +142,45 @@ export default function CalibrationFlow() {
       sessionMaxLean.current = 0;
       setState("tracking");
     } else if (state === "manual_min_l") {
-      minL.current = pose ? pose.leftKneeAngle : null;
+      if (!pose || !pose.leftVisible || pose.leftKneeAngle <= 10) return;
+      minL.current = pose.leftKneeAngle;
       setState("manual_max_l");
     } else if (state === "manual_max_l") {
-      maxL.current = pose ? pose.leftKneeAngle : null;
+      if (!pose || !pose.leftVisible || pose.leftKneeAngle <= 10) return;
+      maxL.current = pose.leftKneeAngle;
       setState("manual_min_r");
     } else if (state === "manual_min_r") {
-      minR.current = pose ? pose.rightKneeAngle : null;
+      if (!pose || !pose.rightVisible || pose.rightKneeAngle <= 10) return;
+      minR.current = pose.rightKneeAngle;
       setState("manual_max_r");
     } else if (state === "manual_max_r") {
-      maxR.current = pose ? pose.rightKneeAngle : null;
-      const lMin = minL.current;
-      const lMax = maxL.current;
-      const rMin = minR.current;
-      const rMax = maxR.current;
+      if (!pose || !pose.rightVisible || pose.rightKneeAngle <= 10) return;
+      maxR.current = pose.rightKneeAngle;
 
-      if ((lMin === null || lMax === null) && (rMin === null || rMax === null)) {
-        resetSession();
+      if (
+        minL.current === null ||
+        maxL.current === null ||
+        minR.current === null ||
+        maxR.current === null
+      ) {
         return;
       }
 
-      const romL = (lMax !== null && lMin !== null) ? lMax - lMin : -1;
-      const romR = (rMax !== null && rMin !== null) ? rMax - rMin : -1;
-      engine.injuredSide = (romL >= 0 && (romR < 0 || romL < romR)) ? "left" : "right";
+      const romL = maxL.current - minL.current;
+      const romR = maxR.current - minR.current;
+      engine.injuredSide = romL < romR ? "left" : "right";
       engine.resetFilters();
 
-      const injMin = engine.injuredSide === "left" ? lMin : rMin;
-      const injMax = engine.injuredSide === "left" ? lMax : rMax;
+      const injMin = engine.injuredSide === "left" ? minL.current : minR.current;
+      const injMax = engine.injuredSide === "left" ? maxL.current : maxR.current;
       tracker.injuredSide = engine.injuredSide;
       tracker.updateLimits(injMin, injMax);
       sessionMaxLean.current = 0;
       setState("tracking");
     } else if (state === "tracking") {
-      const injMin = tracker.injuredSide === "left" ? minL.current : minR.current;
-      const injMax = tracker.injuredSide === "left" ? maxL.current : maxR.current;
-      if (injMin !== null && injMax !== null) {
-        setState("session_end");
-      } else {
-        resetSession();
-      }
+      setState("session_end");
     }
-  }, [state, startAutoCalib, resetSession]);
+  }, [state, startAutoCalib]);
 
   // keyboard handler for mode selection & step locking
   useEffect(() => {
@@ -193,33 +193,37 @@ export default function CalibrationFlow() {
         return;
       }
 
-      if (e.key === "q" || e.key === "Q") {
-        const tracker = trackerRef.current;
-        const injMin = tracker.injuredSide === "left" ? minL.current : minR.current;
-        const injMax = tracker.injuredSide === "left" ? maxL.current : maxR.current;
-        const hasRealResults = state === "tracking" && injMin !== null && injMax !== null;
-
-        if (hasRealResults) {
-          setState("session_end");
-        } else {
-          resetSession();
-        }
-        return;
-      }
-
       if (state === "mode_select") {
+        if (e.key === "q" || e.key === "Q") {
+          resetSession();
+          return;
+        }
         if (e.key === "a" || e.key === "A") {
           startAutoCalib();
         } else if (e.key === "m" || e.key === "M") {
           startManualCalib();
         }
       } else if (
+        state === "auto_calibrate_countdown" ||
         state === "auto_calibrate" ||
         state.startsWith("manual_")
       ) {
+        if (e.key === "q" || e.key === "Q") {
+          resetSession();
+          return;
+        }
         if (e.key === " " || e.key === "Enter" || e.key === "c" || e.key === "C") {
           e.preventDefault();
           handleLockOrAdvance();
+        }
+      } else if (state === "tracking") {
+        if (e.key === "q" || e.key === "Q") {
+          resetSession();
+          return;
+        }
+        if (e.key === " " || e.key === "Enter" || e.key === "c" || e.key === "C") {
+          e.preventDefault();
+          setState("session_end");
         }
       }
     }
@@ -327,36 +331,25 @@ export default function CalibrationFlow() {
           fontSize
         );
         y += lineGap;
-        if (anglesValid) {
-          const cl =
-            pose.leftVisible && pose.leftKneeAngle > 10
-              ? Math.round(pose.leftKneeAngle)
-              : "--";
-          const cr =
-            pose.rightVisible && pose.rightKneeAngle > 10
-              ? Math.round(pose.rightKneeAngle)
-              : "--";
-          const lStr =
-            minL.current !== null
-              ? `curr: ${cl}° | max: ${Math.round(maxL.current!)}° | min: ${Math.round(minL.current)}° | rom: ${Math.round(maxL.current! - minL.current)}°`
-              : `curr: ${cl}° | waiting...`;
-          const rStr =
-            minR.current !== null
-              ? `curr: ${cr}° | max: ${Math.round(maxR.current!)}° | min: ${Math.round(minR.current)}° | rom: ${Math.round(maxR.current! - minR.current)}°`
-              : `curr: ${cr}° | waiting...`;
-          drawHudText(ctx, `Left:  ${lStr}`, 24, y, "#67e8f9", fontSize);
-          y += lineGap;
-          drawHudText(ctx, `Right: ${rStr}`, 24, y, "#67e8f9", fontSize);
-        } else {
-          drawHudText(
-            ctx,
-            "Low confidence. Ensure full body is visible.",
-            24,
-            y,
-            "#ff6600",
-            Math.round(fontSize * 0.9)
-          );
-        }
+
+        const leftValid = anglesValid && pose.leftVisible && pose.leftKneeAngle > 10;
+        const rightValid = anglesValid && pose.rightVisible && pose.rightKneeAngle > 10;
+
+        const lStr = leftValid
+          ? minL.current !== null
+            ? `LEFT: curr: ${Math.round(pose.leftKneeAngle)}° | max: ${Math.round(maxL.current!)}° | min: ${Math.round(minL.current)}° | rom: ${Math.round(maxL.current! - minL.current)}°`
+            : `LEFT: curr: ${Math.round(pose.leftKneeAngle)}° | move through ROM`
+          : "LEFT: curr: --° | ensure leg is visible";
+
+        const rStr = rightValid
+          ? minR.current !== null
+            ? `RIGHT: curr: ${Math.round(pose.rightKneeAngle)}° | max: ${Math.round(maxR.current!)}° | min: ${Math.round(minR.current)}° | rom: ${Math.round(maxR.current! - minR.current)}°`
+            : `RIGHT: curr: ${Math.round(pose.rightKneeAngle)}° | move through ROM`
+          : "RIGHT: curr: --° | ensure leg is visible";
+
+        drawHudText(ctx, lStr, 24, y, leftValid ? "#67e8f9" : "#ff6600", fontSize);
+        y += lineGap;
+        drawHudText(ctx, rStr, 24, y, rightValid ? "#67e8f9" : "#ff6600", fontSize);
       } else if (state === "manual_min_l") {
         drawHudText(
           ctx,
@@ -367,16 +360,11 @@ export default function CalibrationFlow() {
           fontSize
         );
         y += lineGap;
-        if (anglesValid) {
-          drawHudText(
-            ctx,
-            `Left knee: ${Math.round(pose.leftKneeAngle)}°`,
-            24,
-            y,
-            "#67e8f9",
-            fontSize
-          );
-        }
+        const leftValid = anglesValid && pose.leftVisible && pose.leftKneeAngle > 10;
+        const lStr = leftValid
+          ? `LEFT: curr: ${Math.round(pose.leftKneeAngle)}°`
+          : "LEFT: curr: --° | ensure leg is visible";
+        drawHudText(ctx, lStr, 24, y, leftValid ? "#67e8f9" : "#ff6600", fontSize);
       } else if (state === "manual_max_l") {
         drawHudText(
           ctx,
@@ -387,16 +375,11 @@ export default function CalibrationFlow() {
           fontSize
         );
         y += lineGap;
-        if (anglesValid) {
-          drawHudText(
-            ctx,
-            `Left knee: ${Math.round(pose.leftKneeAngle)}°`,
-            24,
-            y,
-            "#67e8f9",
-            fontSize
-          );
-        }
+        const leftValid = anglesValid && pose.leftVisible && pose.leftKneeAngle > 10;
+        const lStr = leftValid
+          ? `LEFT: curr: ${Math.round(pose.leftKneeAngle)}°`
+          : "LEFT: curr: --° | ensure leg is visible";
+        drawHudText(ctx, lStr, 24, y, leftValid ? "#67e8f9" : "#ff6600", fontSize);
       } else if (state === "manual_min_r") {
         drawHudText(
           ctx,
@@ -407,16 +390,11 @@ export default function CalibrationFlow() {
           fontSize
         );
         y += lineGap;
-        if (anglesValid) {
-          drawHudText(
-            ctx,
-            `Right knee: ${Math.round(pose.rightKneeAngle)}°`,
-            24,
-            y,
-            "#67e8f9",
-            fontSize
-          );
-        }
+        const rightValid = anglesValid && pose.rightVisible && pose.rightKneeAngle > 10;
+        const rStr = rightValid
+          ? `RIGHT: curr: ${Math.round(pose.rightKneeAngle)}°`
+          : "RIGHT: curr: --° | ensure leg is visible";
+        drawHudText(ctx, rStr, 24, y, rightValid ? "#67e8f9" : "#ff6600", fontSize);
       } else if (state === "manual_max_r") {
         drawHudText(
           ctx,
@@ -427,16 +405,11 @@ export default function CalibrationFlow() {
           fontSize
         );
         y += lineGap;
-        if (anglesValid) {
-          drawHudText(
-            ctx,
-            `Right knee: ${Math.round(pose.rightKneeAngle)}°`,
-            24,
-            y,
-            "#67e8f9",
-            fontSize
-          );
-        }
+        const rightValid = anglesValid && pose.rightVisible && pose.rightKneeAngle > 10;
+        const rStr = rightValid
+          ? `RIGHT: curr: ${Math.round(pose.rightKneeAngle)}°`
+          : "RIGHT: curr: --° | ensure leg is visible";
+        drawHudText(ctx, rStr, 24, y, rightValid ? "#67e8f9" : "#ff6600", fontSize);
       } else if (state === "tracking") {
         const tracker = trackerRef.current;
         drawHudText(
@@ -498,10 +471,10 @@ export default function CalibrationFlow() {
 
         drawHudText(
           ctx,
-          "Press 'Q' or click 'End Session' to finish",
+          "Click window or 'End Session' for summary. Press 'Q' to recalibrate.",
           24,
           height - 24,
-          "rgba(255,255,255,0.6)",
+          "rgba(255,255,255,0.7)",
           Math.round(fontSize * 0.8)
         );
       }
@@ -563,12 +536,18 @@ export default function CalibrationFlow() {
   }
 
   const isFrontal = state.startsWith("auto_calibrate") || state === "mode_select";
+  const isActive =
+    state === "auto_calibrate_countdown" ||
+    state === "auto_calibrate" ||
+    state.startsWith("manual_") ||
+    state === "tracking";
 
   return (
     <div className="session-view-wrapper">
       <CameraView
         engine={engineRef.current}
         isFrontal={isFrontal}
+        isActive={isActive}
         onFrame={onFrame}
         renderHud={renderHud}
         onCanvasClick={handleLockOrAdvance}
@@ -614,7 +593,7 @@ export default function CalibrationFlow() {
               className="btn btn-secondary"
               onClick={resetSession}
             >
-              Reset Mode
+              Cancel [Q]
             </button>
           </div>
         )}
@@ -632,7 +611,7 @@ export default function CalibrationFlow() {
               className="btn btn-secondary"
               onClick={resetSession}
             >
-              Cancel
+              Cancel [Q]
             </button>
           </div>
         )}
@@ -653,13 +632,14 @@ export default function CalibrationFlow() {
                 }
               }}
             >
-              End Session [Q]
+              End Session [Click / Space]
             </button>
             <button
+              id="recalibrate-btn"
               className="btn btn-secondary"
               onClick={resetSession}
             >
-              Recalibrate
+              Recalibrate [Q]
             </button>
           </div>
         )}

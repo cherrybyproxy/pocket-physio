@@ -9,6 +9,8 @@ interface CameraViewProps {
   engine: PoseEngine;
   // whether to use 3D Euclidean angle (frontal auto-calib) or 2D planar angle (side-on manual/tracking)
   isFrontal?: boolean;
+  // whether calibration or tracking is actively running
+  isActive?: boolean;
   // called every frame with the latest pose state (or null if no detection)
   onFrame?: (state: PoseState | null) => void;
   // hud rendering callback — the parent state machine decides what text to show
@@ -25,6 +27,7 @@ interface CameraViewProps {
 export default function CameraView({
   engine,
   isFrontal,
+  isActive,
   onFrame,
   renderHud,
   onCanvasClick,
@@ -169,11 +172,11 @@ export default function CameraView({
 
   return (
     <div
-      className="camera-container"
+      className={`camera-container ${isActive ? "active-session" : ""}`}
       onClick={onCanvasClick}
       role="button"
-      tabIndex={0}
-      title="Click to lock calibration or advance step"
+      tabIndex={isActive ? 0 : -1}
+      title={isActive ? "Click to lock calibration or advance step" : "Pocket Physio Camera"}
     >
       <video
         ref={videoRef}
