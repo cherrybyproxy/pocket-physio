@@ -8,35 +8,39 @@
   --bg-surface-hover: #18151f;
   --border-subtle: #24202c;
   --border-muted: #332d3d;
-  
+
   --text-primary: #f4f4f5;
   --text-secondary: #a1a1aa;
   --text-muted: #71717a;
-  
+
   --purple-dark: #301934;
   --purple-base: #4a2554;
   --purple-hover: #5d2e69;
   --purple-border: #6d367c;
   --accent: #c084fc;
   --accent-soft: rgba(192, 132, 252, 0.12);
-  
+
   --danger: #f87171;
   --success: #34d399;
   --warning: #fbbf24;
-  
+
   --radius: 8px;
   --radius-sm: 6px;
   --transition: 150ms ease-in-out;
 }
 
 /* ── reset ── */
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
 }
 
-html, body, #root {
+html,
+body,
+#root {
   height: 100%;
   height: 100dvh;
   overflow: hidden;
@@ -97,7 +101,8 @@ body {
   gap: 1.25rem;
 }
 
-.nav-links a, .nav-links .nav-auth {
+.nav-links a,
+.nav-links .nav-auth {
   font-size: 0.88rem;
   font-weight: 500;
   color: var(--text-secondary);
@@ -107,7 +112,8 @@ body {
   border-radius: var(--radius-sm);
 }
 
-.nav-links a:hover, .nav-links .nav-auth:hover {
+.nav-links a:hover,
+.nav-links .nav-auth:hover {
   color: var(--text-primary);
   background: var(--bg-surface);
 }
@@ -143,12 +149,9 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  width: min(calc((100dvh - 125px) * 4 / 3), calc(100vw - 2rem), 1040px);
-  max-width: 100%;
-  height: 100%;
-  max-height: 100%;
+  gap: 0.75rem;
+  width: 100%;
+  max-width: 1040px;
   min-height: 0;
 }
 
@@ -156,7 +159,9 @@ body {
 .camera-container {
   position: relative;
   width: 100%;
-  aspect-ratio: 4 / 3;
+  max-width: 1040px;
+  max-height: calc(100dvh - 165px);
+  aspect-ratio: 16 / 9;
   background: #000000;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
@@ -167,7 +172,6 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
 }
 
 .camera-container:focus,
@@ -202,9 +206,9 @@ body {
 .session-controls {
   flex-shrink: 0;
   width: 100%;
-  height: 52px;
+  min-height: 60px;
   box-sizing: border-box;
-  padding: 0 0.75rem;
+  padding: 0.6rem 1rem;
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
@@ -218,12 +222,19 @@ body {
   flex-wrap: wrap;
   gap: 0.75rem;
   justify-content: center;
+  align-items: center;
 }
 
 .control-info {
   font-size: 0.9rem;
   color: var(--accent);
   font-weight: 500;
+  text-align: center;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 1rem;
 }
 
 /* ── camera error / loading ── */
@@ -558,7 +569,9 @@ body {
 
 /* ── animations ── */
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ── responsive ── */
@@ -566,16 +579,20 @@ body {
   .camera-container video {
     aspect-ratio: auto;
   }
+
   .summary-grid {
     grid-template-columns: 1fr;
   }
+
   .nav-links {
     gap: 0.75rem;
   }
+
   .control-button-group {
     flex-direction: column;
     width: 100%;
   }
+
   .control-button-group .btn {
     width: 100%;
   }
