@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { getSessions, isAuthenticated, type SessionRecord } from "../api/client";
 import { Link } from "react-router-dom";
+import SessionHistoryChart from "./SessionHistoryChart";
 
 export default function SessionHistory() {
   const [sessions, setSessions] = useState<SessionRecord[]>([]);
@@ -48,7 +49,9 @@ export default function SessionHistory() {
             No sessions recorded yet. Complete a session to track your ROM progress.
           </p>
         ) : (
-          <div className="session-table-wrapper">
+          <>
+            <SessionHistoryChart sessions={sessions} />
+            <div className="session-table-wrapper">
             <table className="session-table" id="session-history-table">
               <thead>
                 <tr>
@@ -84,8 +87,9 @@ export default function SessionHistory() {
               </tbody>
             </table>
           </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
-  );
+  </div>
+);
 }
