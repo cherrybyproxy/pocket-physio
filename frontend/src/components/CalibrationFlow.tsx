@@ -7,7 +7,7 @@ import { PoseEngine, type PoseState } from "../engine/poseEngine";
 import { KinematicsTracker } from "../engine/kinematicsTracker";
 import CameraView from "./CameraView";
 import SessionSummary from "./SessionSummary";
-import { drawHudText } from "../engine/drawUtils";
+import { drawHudText, drawTargetArcGauge } from "../engine/drawUtils";
 
 type CalibState =
   | "loading"
@@ -430,9 +430,32 @@ export default function CalibrationFlow() {
 
         if (anglesValid && injVisible) {
           const fb = tracker.evaluate(pose);
+
+          // render target ROM arc gauge overlay in mirrored coordinates to align with webcam video
+          if (pose.normalizedLandmarks) {
+            ctx.save();
+            ctx.translate(_width, 0);
+            ctx.scale(-1, 1);
+            drawTargetArcGauge(
+              ctx,
+              pose.normalizedLandmarks,
+              _width,
+              height,
+              tracker.injuredSide,
+              fb.currentAngle,
+              fb.minAngle,
+              fb.maxAngle
+            );
+            ctx.restore();
+          }
+
+          const romPct = fb.rom > 0
+            ? Math.max(0, Math.min(100, Math.round(((fb.currentAngle - fb.minAngle) / fb.rom) * 100)))
+            : 0;
+
           drawHudText(
             ctx,
-            `curr: ${Math.round(fb.currentAngle)}° | max: ${Math.round(fb.maxAngle)}° | min: ${Math.round(fb.minAngle)}° | ROM: ${Math.round(fb.rom)}°`,
+            `curr: ${Math.round(fb.currentAngle)}° (${romPct}% of ROM) | min: ${Math.round(fb.minAngle)}° | max: ${Math.round(fb.maxAngle)}°`,
             24,
             y,
             fb.angleColor,

@@ -136,3 +136,94 @@ export function drawHudText(
 
   ctx.restore();
 }
+
+// draw real-time dynamic target ROM arc gauge overlay directly on the active knee joint
+export function drawTargetArcGauge(
+  ctx: CanvasRenderingContext2D,
+  landmarks: NormalizedLandmark[],
+  width: number,
+  height: number,
+  injuredSide: "left" | "right",
+  currentAngle: number,
+  minAngle: number,
+  maxAngle: number
+): void {
+  if (!landmarks || landmarks.length === 0) return;
+
+  const kneeIdx = injuredSide === "left" ? 25 : 26;
+  const hipIdx = injuredSide === "left" ? 23 : 24;
+  const ankleIdx = injuredSide === "left" ? 27 : 28;
+
+  const knee = landmarks[kneeIdx];
+  const hip = landmarks[hipIdx];
+  const ankle = landmarks[ankleIdx];
+
+  if (!knee || !hip || !ankle) return;
+  if ((knee.visibility ?? 1) < 0.35) return;
+
+  const kx = knee.x * width;
+  const ky = knee.y * height;
+  const hx = hip.x * width;
+  const hy = hip.y * height;
+
+  ctx.save();
+
+  // thigh angle reference direction (hip to knee)
+  const thighAngle = Math.atan2(hy - ky, hx - kx);
+  const radius = Math.max(35, Math.min(65, height * 0.07));
+
+  // background target ROM track arc around knee
+  ctx.beginPath();
+  ctx.arc(kx, ky, radius, thighAngle - Math.PI * 0.65, thighAngle + Math.PI * 0.65);
+  ctx.lineWidth = 5;
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
+  ctx.stroke();
+
+  // calculate active arc fill proportional to joint angle
+  const minA = minAngle || 45;
+  const maxA = maxAngle || 165;
+  const romRange = Math.max(1, maxA - minA);
+  const angleRatio = Math.max(0, Math.min(1, (currentAngle - minA) / romRange));
+  const activeArcAngle = thighAngle - Math.PI * 0.6 + angleRatio * (Math.PI * 1.2);
+
+  // arc color based on target proximity
+  let arcColor = injuredSide === "left" ? "#ff8c00" : "#00e5ff";
+  if (currentAngle <= minA + 10) {
+    arcColor = "#00ffcc"; // glowing cyan when target flexion reached
+  } else if (currentAngle >= maxA - 10) {
+    arcColor = "#3b82f6"; // bright blue when target extension reached
+  }
+
+  // draw active ROM fill arc
+  ctx.beginPath();
+  ctx.arc(kx, ky, radius, thighAngle - Math.PI * 0.6, activeArcAngle);
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = arcColor;
+  ctx.stroke();
+
+  // target flexion & extension marker dots
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath();
+  ctx.arc(
+    kx + (radius + 6) * Math.cos(thighAngle - Math.PI * 0.6),
+    ky + (radius + 6) * Math.sin(thighAngle - Math.PI * 0.6),
+    3.5,
+    0,
+    2 * Math.PI
+  );
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(
+    kx + (radius + 6) * Math.cos(thighAngle + Math.PI * 0.6),
+    ky + (radius + 6) * Math.sin(thighAngle + Math.PI * 0.6),
+    3.5,
+    0,
+    2 * Math.PI
+  );
+  ctx.fill();
+
+  ctx.restore();
+}
+
+
