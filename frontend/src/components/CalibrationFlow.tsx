@@ -27,17 +27,54 @@ type CalibState =
 
 const CALIB_DELAY = 5; // seconds
 
+type PlannedPattern = "sequential" | "alternating";
+
 export default function CalibrationFlow() {
   const [state, setState] = useState<CalibState>("loading");
   const [trackingMode, setTrackingMode] = useState<TrackingMode>("watcher");
   const [trainerSubMode, setTrainerSubMode] = useState<TrainerSubMode>("freestyle");
   const [plannedTargetReps, setPlannedTargetReps] = useState<number>(5);
+  const [plannedPattern, setPlannedPattern] = useState<PlannedPattern>("sequential");
+
+  // planned routine modal pop-up state
+  const [showPlannedModal, setShowPlannedModal] = useState<boolean>(false);
+  const [isTrainingCompleteModal, setIsTrainingCompleteModal] = useState<boolean>(false);
+  const [plannedRepInput, setPlannedRepInput] = useState<string>("5");
+  const [plannedDurationInput, setPlannedDurationInput] = useState<string>("1.0");
+  const [plannedInputError, setPlannedInputError] = useState<string | null>(null);
+
   const [engineReady, setEngineReady] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const engineRef = useRef(new PoseEngine());
   const trackerRef = useRef(new KinematicsTracker("left"));
   const latestPoseRef = useRef<PoseState | null>(null);
+  const completionTriggeredRef = useRef<boolean>(false);
+
+  const handleSavePlannedConfig = useCallback(() => {
+    const parsedReps = parseInt(plannedRepInput.trim(), 10);
+    const parsedDuration = parseFloat(plannedDurationInput.trim());
+
+    if (isNaN(parsedReps) || !Number.isInteger(parsedReps) || parsedReps < 1 || parsedReps > 99) {
+      setPlannedInputError("Target reps must be a whole number between 1 and 99.");
+      return;
+    }
+
+    if (isNaN(parsedDuration) || parsedDuration < 0.1 || parsedDuration > 30.0) {
+      setPlannedInputError("Hold duration must be a number between 0.1 and 30 seconds.");
+      return;
+    }
+
+    const roundedDuration = Math.round(parsedDuration * 10) / 10;
+    setPlannedTargetReps(parsedReps);
+    trackerRef.current.setTargetHoldDuration(roundedDuration);
+    trackerRef.current.resetPlannedStats();
+    completionTriggeredRef.current = false;
+    setPlannedInputError(null);
+    setShowPlannedModal(false);
+    setIsTrainingCompleteModal(false);
+    setTrainerSubMode("planned");
+  }, [plannedRepInput, plannedDurationInput]);
 
   // calibration accumulators
   const minL = useRef<number | null>(null);
@@ -54,6 +91,8 @@ export default function CalibrationFlow() {
     minL.current = maxL.current = minR.current = maxR.current = null;
     engineRef.current.resetFilters();
     sessionMaxLean.current = 0;
+    setShowPlannedModal(false);
+    setPlannedInputError(null);
     trackerRef.current.updateLimits(null, null);
     setState("mode_select");
   }, []);
@@ -194,6 +233,9 @@ export default function CalibrationFlow() {
   // keyboard handler for mode selection & step locking
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
+      if (showPlannedModal) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
       // ignore typing in form inputs
       if (
         document.activeElement?.tagName === "INPUT" ||
@@ -251,7 +293,8 @@ export default function CalibrationFlow() {
         } else if (e.key === "f" || e.key === "F") {
           setTrainerSubMode("freestyle");
         } else if (e.key === "p" || e.key === "P") {
-          setTrainerSubMode("planned");
+          setTrackingMode("trainer");
+          setShowPlannedModal(true);
         } else if (e.key === " " || e.key === "Enter" || e.key === "c" || e.key === "C") {
           e.preventDefault();
           setState("session_end");
@@ -548,46 +591,32 @@ export default function CalibrationFlow() {
             if (trainerSubMode === "planned") {
               const flexDone = fb.flexRepCount >= plannedTargetReps;
               const extDone = fb.extRepCount >= plannedTargetReps;
+              const isComplete = flexDone && extDone;
 
-              if (!flexDone) {
-                drawHudText(
-                  ctx,
-                  `curr: ${Math.round(fb.currentAngle)}° (${romPct}% ROM) | Flex Goal: ${fb.flexRepCount ?? 0} / ${plannedTargetReps} reps | hold: ${fb.holdTime.toFixed(1)}s / ${fb.targetHoldDuration.toFixed(1)}s`,
-                  24,
-                  y,
-                  "#00ffcc",
-                  fontSize
-                );
-                y += lineGap;
-                drawHudText(
-                  ctx,
-                  `Bend knee to flexion target & hold 1s. Return past 50% ROM to reset.`,
-                  24,
-                  y,
-                  "#ffffff",
-                  Math.round(fontSize * 0.85)
-                );
-                y += lineGap;
-              } else if (!extDone) {
-                drawHudText(
-                  ctx,
-                  `curr: ${Math.round(fb.currentAngle)}° (${romPct}% ROM) | Ext Goal: ${fb.extRepCount ?? 0} / ${plannedTargetReps} reps | hold: ${fb.holdTime.toFixed(1)}s / ${fb.targetHoldDuration.toFixed(1)}s`,
-                  24,
-                  y,
-                  "#67e8f9",
-                  fontSize
-                );
-                y += lineGap;
-                drawHudText(
-                  ctx,
-                  `Flexion Complete! Straighten leg to extension target & hold 1s.`,
-                  24,
-                  y,
-                  "#ffffff",
-                  Math.round(fontSize * 0.85)
-                );
-                y += lineGap;
+              // Configure allowed movement mode for tracker
+              if (isComplete) {
+                tracker.allowedMovement = "both";
+                if (!completionTriggeredRef.current) {
+                  completionTriggeredRef.current = true;
+                  setIsTrainingCompleteModal(true);
+                  setShowPlannedModal(true);
+                }
+              } else if (plannedPattern === "sequential") {
+                if (!flexDone) {
+                  tracker.allowedMovement = "flexion";
+                } else if (!extDone) {
+                  tracker.allowedMovement = "extension";
+                }
               } else {
+                // Alternating mode: alternate flexion and extension
+                if (fb.flexRepCount <= fb.extRepCount) {
+                  tracker.allowedMovement = "flexion";
+                } else {
+                  tracker.allowedMovement = "extension";
+                }
+              }
+
+              if (isComplete) {
                 drawHudText(
                   ctx,
                   `Planned Routine Complete! (${plannedTargetReps} Flexion + ${plannedTargetReps} Extension reps)`,
@@ -597,9 +626,73 @@ export default function CalibrationFlow() {
                   fontSize
                 );
                 y += lineGap;
+              } else if (plannedPattern === "sequential") {
+                if (!flexDone) {
+                  drawHudText(
+                    ctx,
+                    `curr: ${Math.round(fb.currentAngle)}° (${romPct}% ROM) | Flex Goal: ${fb.flexRepCount ?? 0} / ${plannedTargetReps} reps | hold: ${fb.holdTime.toFixed(1)}s / ${fb.targetHoldDuration.toFixed(1)}s`,
+                    24,
+                    y,
+                    "#00ffcc",
+                    fontSize
+                  );
+                  y += lineGap;
+                  drawHudText(
+                    ctx,
+                    `Bend knee to flexion target & hold ${fb.targetHoldDuration}s. Return past 50% ROM to reset.`,
+                    24,
+                    y,
+                    "#ffffff",
+                    Math.round(fontSize * 0.85)
+                  );
+                  y += lineGap;
+                } else {
+                  drawHudText(
+                    ctx,
+                    `curr: ${Math.round(fb.currentAngle)}° (${romPct}% ROM) | Ext Goal: ${fb.extRepCount ?? 0} / ${plannedTargetReps} reps | hold: ${fb.holdTime.toFixed(1)}s / ${fb.targetHoldDuration.toFixed(1)}s`,
+                    24,
+                    y,
+                    "#67e8f9",
+                    fontSize
+                  );
+                  y += lineGap;
+                  drawHudText(
+                    ctx,
+                    `Flexion Complete! Straighten leg to extension target & hold ${fb.targetHoldDuration}s.`,
+                    24,
+                    y,
+                    "#ffffff",
+                    Math.round(fontSize * 0.85)
+                  );
+                  y += lineGap;
+                }
+              } else {
+                // Alternating pattern
+                const targetMove = fb.flexRepCount <= fb.extRepCount ? "Flexion" : "Extension";
+                drawHudText(
+                  ctx,
+                  `curr: ${Math.round(fb.currentAngle)}° (${romPct}% ROM) | Flex: ${fb.flexRepCount ?? 0}/${plannedTargetReps} | Ext: ${fb.extRepCount ?? 0}/${plannedTargetReps} | hold: ${fb.holdTime.toFixed(1)}s / ${fb.targetHoldDuration.toFixed(1)}s`,
+                  24,
+                  y,
+                  targetMove === "Flexion" ? "#00ffcc" : "#67e8f9",
+                  fontSize
+                );
+                y += lineGap;
+                drawHudText(
+                  ctx,
+                  targetMove === "Flexion"
+                    ? `Next: Bend knee to flexion target & hold ${fb.targetHoldDuration}s. Return past 50% ROM to reset.`
+                    : `Next: Straighten leg to extension target & hold ${fb.targetHoldDuration}s. Return past 50% ROM to reset.`,
+                  24,
+                  y,
+                  "#ffffff",
+                  Math.round(fontSize * 0.85)
+                );
+                y += lineGap;
               }
             } else {
               // Freestyle Sub-Mode
+              tracker.allowedMovement = "both";
               drawHudText(
                 ctx,
                 `curr: ${Math.round(fb.currentAngle)}° (${romPct}% ROM) | flex reps: ${fb.flexRepCount ?? 0} | ext reps: ${fb.extRepCount ?? 0} | hold: ${fb.holdTime.toFixed(1)}s / ${fb.targetHoldDuration.toFixed(1)}s`,
@@ -863,26 +956,28 @@ export default function CalibrationFlow() {
 
             {trackingMode === "trainer" && (
               <>
+                {trainerSubMode === "planned" && (
+                  <button
+                    id="configure-planned-btn"
+                    className="btn btn-secondary"
+                    onClick={() => setShowPlannedModal(true)}
+                  >
+                    Configure ({plannedTargetReps} reps @ {trackerRef.current.targetHoldDuration}s)
+                  </button>
+                )}
                 <button
                   id="switch-submode-btn"
                   className="btn btn-secondary"
                   onClick={() => {
-                    setTrainerSubMode((prev) => (prev === "freestyle" ? "planned" : "freestyle"));
+                    if (trainerSubMode === "freestyle") {
+                      setShowPlannedModal(true);
+                    } else {
+                      setTrainerSubMode("freestyle");
+                    }
                   }}
                 >
                   {trainerSubMode === "freestyle" ? "Planned Routine [P]" : "Freestyle [F]"}
                 </button>
-                {trainerSubMode === "planned" && (
-                  <button
-                    id="set-target-reps-btn"
-                    className="btn btn-secondary"
-                    onClick={() => {
-                      setPlannedTargetReps((prev) => (prev === 5 ? 10 : prev === 10 ? 3 : 5));
-                    }}
-                  >
-                    Goal: {plannedTargetReps} Reps
-                  </button>
-                )}
               </>
             )}
 
@@ -902,6 +997,118 @@ export default function CalibrationFlow() {
             >
               Recalibrate [Q]
             </button>
+          </div>
+        )}
+
+        {showPlannedModal && (
+          <div className="modal-backdrop">
+            <div className="glass-card planned-config-modal">
+              <h3 style={{ marginTop: 0, marginBottom: "0.5rem", fontSize: "1.15rem", fontWeight: 600, color: isTrainingCompleteModal ? "var(--success)" : "var(--text-primary)" }}>
+                {isTrainingCompleteModal ? "Congratulations! Training complete." : "Configure Training Plan"}
+              </h3>
+
+              {isTrainingCompleteModal && (
+                <p style={{ fontSize: "0.88rem", color: "var(--text-secondary)", marginBottom: "1.25rem" }}>
+                  You completed your set! Adjust your parameters below to start another routine.
+                </p>
+              )}
+
+              {plannedInputError && (
+                <p className="error-text" style={{ marginBottom: "1rem", color: "var(--danger)", fontSize: "0.88rem" }}>
+                  {plannedInputError}
+                </p>
+              )}
+
+              <div style={{ marginBottom: "1.25rem", textAlign: "left" }}>
+                <label style={{ display: "block", marginBottom: "0.4rem", fontSize: "0.88rem", color: "var(--text-secondary)" }}>
+                  Movement Order:
+                </label>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.6rem" }}>
+                  <button
+                    type="button"
+                    className={`btn ${plannedPattern === "sequential" ? "btn-primary" : "btn-secondary"}`}
+                    onClick={() => setPlannedPattern("sequential")}
+                    style={{ fontSize: "0.82rem", padding: "0.55rem 0.4rem", width: "100%", justifyContent: "center" }}
+                  >
+                    Flexion then Extension
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn ${plannedPattern === "alternating" ? "btn-primary" : "btn-secondary"}`}
+                    onClick={() => setPlannedPattern("alternating")}
+                    style={{ fontSize: "0.82rem", padding: "0.55rem 0.4rem", width: "100%", justifyContent: "center" }}
+                  >
+                    Alternating
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: "1.25rem", textAlign: "left" }}>
+                <label style={{ display: "block", marginBottom: "0.4rem", fontSize: "0.88rem", color: "var(--text-secondary)" }}>
+                  Target Reps per Movement:
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="99"
+                  step="1"
+                  style={{
+                    width: "100%",
+                    padding: "0.6rem 0.8rem",
+                    borderRadius: "6px",
+                    border: "1px solid var(--border-subtle)",
+                    background: "var(--bg-primary)",
+                    color: "var(--text-primary)",
+                    fontSize: "0.95rem",
+                  }}
+                  value={plannedRepInput}
+                  onChange={(e) => setPlannedRepInput(e.target.value)}
+                />
+              </div>
+
+              <div style={{ marginBottom: "1.75rem", textAlign: "left" }}>
+                <label style={{ display: "block", marginBottom: "0.4rem", fontSize: "0.88rem", color: "var(--text-secondary)" }}>
+                  Hold Duration per Rep (seconds):
+                </label>
+                <input
+                  type="number"
+                  min="0.1"
+                  max="30"
+                  step="0.1"
+                  style={{
+                    width: "100%",
+                    padding: "0.6rem 0.8rem",
+                    borderRadius: "6px",
+                    border: "1px solid var(--border-subtle)",
+                    background: "var(--bg-primary)",
+                    color: "var(--text-primary)",
+                    fontSize: "0.95rem",
+                  }}
+                  value={plannedDurationInput}
+                  onChange={(e) => setPlannedDurationInput(e.target.value)}
+                />
+              </div>
+
+              <div style={{ display: "flex", gap: "0.75rem", justifyContent: "flex-end" }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    setShowPlannedModal(false);
+                    setPlannedInputError(null);
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleSavePlannedConfig}
+                >
+                  Start Planned Routine
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

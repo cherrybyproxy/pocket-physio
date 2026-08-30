@@ -58,7 +58,23 @@ export class KinematicsTracker {
   private currentHoldTime: number = 0;
   public totalHoldTime: number = 0;
   private holdCompletedThisRep: boolean = false;
-  readonly targetHoldDuration: number = 1.0; // 1 second hold goal per rep
+  public targetHoldDuration: number = 1.0; // default 1 second hold goal per rep
+  public allowedMovement: "both" | "flexion" | "extension" = "both";
+
+  setTargetHoldDuration(durationSeconds: number): void {
+    const rounded = Math.round(durationSeconds * 10) / 10;
+    this.targetHoldDuration = Math.max(0.1, Math.min(30.0, rounded));
+  }
+
+  resetPlannedStats(): void {
+    this.flexRepCount = 0;
+    this.extRepCount = 0;
+    this.repCount = 0;
+    this.flexLocked = false;
+    this.extLocked = false;
+    this.holdStartTimestampMs = null;
+    this.currentHoldTime = 0;
+  }
 
   constructor(
     injuredSide: "left" | "right",
@@ -158,11 +174,19 @@ export class KinematicsTracker {
       if (this.currentHoldTime >= this.targetHoldDuration) {
         this.holdCompletedThisRep = true;
 
-        // Count rep upon 1s hold completion if not locked
-        if (isInFlexionTarget && !this.flexLocked) {
+        // Count rep upon hold completion if movement allowed and not locked
+        if (
+          isInFlexionTarget &&
+          (this.allowedMovement === "both" || this.allowedMovement === "flexion") &&
+          !this.flexLocked
+        ) {
           this.flexRepCount += 1;
           this.flexLocked = true;
-        } else if (isInExtensionTarget && !this.extLocked) {
+        } else if (
+          isInExtensionTarget &&
+          (this.allowedMovement === "both" || this.allowedMovement === "extension") &&
+          !this.extLocked
+        ) {
           this.extRepCount += 1;
           this.repCount += 1;
           this.extLocked = true;
