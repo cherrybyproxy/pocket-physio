@@ -660,7 +660,9 @@ export default function CalibrationFlow() {
       ? "left"
       : state === "manual_min_r" || state === "manual_max_r"
         ? "right"
-        : "all";
+        : state === "tracking" && trackingMode === "trainer"
+          ? trackerRef.current.injuredSide
+          : "all";
 
   const isActive =
     state === "auto_calibrate_countdown" ||
