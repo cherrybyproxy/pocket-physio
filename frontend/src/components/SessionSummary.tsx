@@ -89,10 +89,6 @@ export default function SessionSummary({
             <span className="stat-value">{Math.round(maxAngle)}°</span>
           </div>
           <div className="summary-stat">
-            <span className="stat-label">Max Trunk Lean</span>
-            <span className="stat-value">{Math.min(90, Math.max(0, Math.round(bodyLeanMax)))}°</span>
-          </div>
-          <div className="summary-stat">
             <span className="stat-label">Recorded At</span>
             <span className="stat-value" style={{ fontSize: "1.1rem" }}>{getFormattedTime()}</span>
           </div>

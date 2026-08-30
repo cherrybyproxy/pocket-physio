@@ -61,7 +61,6 @@ export default function SessionHistory() {
                   <th>Min</th>
                   <th>Max</th>
                   <th>ROM</th>
-                  <th>Max Lean</th>
                   <th>Source</th>
                 </tr>
               </thead>
@@ -76,7 +75,6 @@ export default function SessionHistory() {
                     <td style={{ fontWeight: 600, color: "var(--accent)" }}>
                       {s.rom !== undefined ? `${s.rom}°` : "--"}
                     </td>
-                    <td>{s.bodyLeanMax !== undefined ? `${s.bodyLeanMax}°` : "--"}</td>
                     <td>
                       <span className={s.isGuest ? "source-tag local" : "source-tag cloud"}>
                         {s.isGuest ? "Local" : "Cloud"}

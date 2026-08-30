@@ -9,6 +9,8 @@ import CameraView from "./CameraView";
 import SessionSummary from "./SessionSummary";
 import { drawHudText, drawTargetArcGauge } from "../engine/drawUtils";
 
+type TrackingMode = "watcher" | "trainer";
+
 type CalibState =
   | "loading"
   | "mode_select"
@@ -18,6 +20,7 @@ type CalibState =
   | "manual_max_l"
   | "manual_min_r"
   | "manual_max_r"
+  | "tracking_mode_select"
   | "tracking"
   | "session_end";
 
@@ -25,6 +28,7 @@ const CALIB_DELAY = 5; // seconds
 
 export default function CalibrationFlow() {
   const [state, setState] = useState<CalibState>("loading");
+  const [trackingMode, setTrackingMode] = useState<TrackingMode>("watcher");
   const [engineReady, setEngineReady] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -140,7 +144,7 @@ export default function CalibrationFlow() {
       tracker.injuredSide = engine.injuredSide;
       tracker.updateLimits(injMin, injMax);
       sessionMaxLean.current = 0;
-      setState("tracking");
+      setState("tracking_mode_select");
     } else if (state === "manual_min_l") {
       if (!pose || !pose.leftVisible || pose.leftKneeAngle <= 10) return;
       minL.current = pose.leftKneeAngle;
@@ -176,6 +180,8 @@ export default function CalibrationFlow() {
       tracker.injuredSide = engine.injuredSide;
       tracker.updateLimits(injMin, injMax);
       sessionMaxLean.current = 0;
+      setState("tracking_mode_select");
+    } else if (state === "tracking_mode_select") {
       setState("tracking");
     } else if (state === "tracking") {
       setState("session_end");
@@ -203,6 +209,20 @@ export default function CalibrationFlow() {
         } else if (e.key === "m" || e.key === "M") {
           startManualCalib();
         }
+      } else if (state === "tracking_mode_select") {
+        if (e.key === "q" || e.key === "Q") {
+          resetSession();
+          return;
+        }
+        if (e.key === "w" || e.key === "W") {
+          setTrackingMode("watcher");
+          setState("tracking");
+        } else if (e.key === "t" || e.key === "T") {
+          setTrackingMode("trainer");
+          setState("tracking");
+        } else if (e.key === "s" || e.key === "S") {
+          setState("session_end");
+        }
       } else if (
         state === "auto_calibrate_countdown" ||
         state === "auto_calibrate" ||
@@ -221,7 +241,11 @@ export default function CalibrationFlow() {
           resetSession();
           return;
         }
-        if (e.key === " " || e.key === "Enter" || e.key === "c" || e.key === "C") {
+        if (e.key === "w" || e.key === "W") {
+          setTrackingMode("watcher");
+        } else if (e.key === "t" || e.key === "T") {
+          setTrackingMode("trainer");
+        } else if (e.key === " " || e.key === "Enter" || e.key === "c" || e.key === "C") {
           e.preventDefault();
           setState("session_end");
         }
@@ -410,14 +434,53 @@ export default function CalibrationFlow() {
           ? `RIGHT: curr: ${Math.round(pose.rightKneeAngle)}°`
           : "RIGHT: curr: --° | ensure leg is visible";
         drawHudText(ctx, rStr, 24, y, rightValid ? "#67e8f9" : "#ff6600", fontSize);
-      } else if (state === "tracking") {
-        const tracker = trackerRef.current;
+      } else if (state === "tracking_mode_select") {
         drawHudText(
           ctx,
-          `Tracking ${tracker.injuredSide.toUpperCase()} leg...`,
+          "Calibration Locked! Select Posture Tracking Mode:",
           24,
           y,
-          "#44ff44",
+          "#00ffcc",
+          fontSize
+        );
+        y += lineGap;
+        drawHudText(
+          ctx,
+          "Press 'W' for Movement Watcher (Monitors Trunk Lean & Weight Offloading)",
+          24,
+          y,
+          "#ffffff",
+          fontSize
+        );
+        y += lineGap;
+        drawHudText(
+          ctx,
+          "Press 'T' for Movement Trainer (Target ROM Arcs, Reps & Holds)",
+          24,
+          y,
+          "#67e8f9",
+          fontSize
+        );
+        y += lineGap;
+        drawHudText(
+          ctx,
+          "Or press 'S' to View Session Summary directly",
+          24,
+          y,
+          "rgba(255,255,255,0.7)",
+          Math.round(fontSize * 0.85)
+        );
+      } else if (state === "tracking") {
+        const tracker = trackerRef.current;
+        const modeTitle = trackingMode === "watcher" ? "MOVEMENT WATCHER" : "MOVEMENT TRAINER";
+        const modeColor = trackingMode === "watcher" ? "#44ff44" : "#00ffcc";
+
+        drawHudText(
+          ctx,
+          `MODE: ${modeTitle} (${tracker.injuredSide.toUpperCase()} leg)`,
+          24,
+          y,
+          modeColor,
           fontSize
         );
         y += lineGap;
@@ -431,47 +494,70 @@ export default function CalibrationFlow() {
         if (anglesValid && injVisible) {
           const fb = tracker.evaluate(pose);
 
-          // render target ROM arc gauge overlay in mirrored coordinates to align with webcam video
-          if (pose.normalizedLandmarks) {
-            ctx.save();
-            ctx.translate(_width, 0);
-            ctx.scale(-1, 1);
-            drawTargetArcGauge(
-              ctx,
-              pose.normalizedLandmarks,
-              _width,
-              height,
-              tracker.injuredSide,
-              fb.currentAngle,
-              fb.minAngle,
-              fb.maxAngle
-            );
-            ctx.restore();
-          }
-
           const romPct = fb.rom > 0
             ? Math.max(0, Math.min(100, Math.round(((fb.currentAngle - fb.minAngle) / fb.rom) * 100)))
             : 0;
 
-          drawHudText(
-            ctx,
-            `curr: ${Math.round(fb.currentAngle)}° (${romPct}% of ROM) | min: ${Math.round(fb.minAngle)}° | max: ${Math.round(fb.maxAngle)}°`,
-            24,
-            y,
-            fb.angleColor,
-            fontSize
-          );
-          y += lineGap;
-          drawHudText(
-            ctx,
-            `load: ${fb.injuredLoad}% injured | ${fb.healthyLoad}% healthy`,
-            24,
-            y,
-            "#ffdd44",
-            fontSize
-          );
-          y += lineGap;
-          drawHudText(ctx, fb.leanText, 24, y, fb.leanColor, fontSize);
+          if (trackingMode === "watcher") {
+            // Movement Watcher Mode: Posture safety, trunk lean, weight offloading
+            drawHudText(
+              ctx,
+              `curr: ${Math.round(fb.currentAngle)}° (${romPct}% of ROM) | min: ${Math.round(fb.minAngle)}° | max: ${Math.round(fb.maxAngle)}°`,
+              24,
+              y,
+              fb.angleColor,
+              fontSize
+            );
+            y += lineGap;
+            drawHudText(
+              ctx,
+              `load: ${fb.injuredLoad}% injured | ${fb.healthyLoad}% healthy`,
+              24,
+              y,
+              "#ffdd44",
+              fontSize
+            );
+            y += lineGap;
+            drawHudText(ctx, fb.leanText, 24, y, fb.leanColor, fontSize);
+          } else {
+            // Movement Trainer Mode: Target ROM Arc, Reps, Holds & Safety Disclaimer
+            if (pose.normalizedLandmarks) {
+              ctx.save();
+              ctx.translate(_width, 0);
+              ctx.scale(-1, 1);
+              drawTargetArcGauge(
+                ctx,
+                pose.normalizedLandmarks,
+                _width,
+                height,
+                tracker.injuredSide,
+                fb.currentAngle,
+                fb.minAngle,
+                fb.maxAngle
+              );
+              ctx.restore();
+            }
+
+            drawHudText(
+              ctx,
+              `curr: ${Math.round(fb.currentAngle)}° (${romPct}% of ROM) | Reps: ${fb.repCount} | Hold: ${fb.holdTime.toFixed(1)}s / ${fb.targetHoldDuration.toFixed(1)}s`,
+              24,
+              y,
+              "#00ffcc",
+              fontSize
+            );
+            y += lineGap;
+
+            // Safety Disclaimer Banner
+            drawHudText(
+              ctx,
+              "⚠️ Disclaimer: Proceed safely — sit or use support as recommended by your physical therapist.",
+              24,
+              y,
+              "#ffaa00",
+              Math.round(fontSize * 0.8)
+            );
+          }
         } else if (anglesValid && !injVisible) {
           drawHudText(
             ctx,
@@ -494,7 +580,7 @@ export default function CalibrationFlow() {
 
         drawHudText(
           ctx,
-          "Click window or 'End Session' for summary. Press 'Q' to recalibrate.",
+          "Click window or 'End Session' for summary. Press 'W' for Watcher, 'T' for Trainer.",
           24,
           height - 24,
           "rgba(255,255,255,0.7)",
@@ -502,7 +588,7 @@ export default function CalibrationFlow() {
         );
       }
     },
-    [state]
+    [state, trackingMode]
   );
 
   if (errorMessage) {
@@ -647,6 +733,40 @@ export default function CalibrationFlow() {
           </div>
         )}
 
+        {state === "tracking_mode_select" && (
+          <div className="control-button-group">
+            <button
+              id="mode-watcher-btn"
+              className="btn btn-primary"
+              onClick={() => {
+                setTrackingMode("watcher");
+                setState("tracking");
+              }}
+            >
+              Movement Watcher [W]
+            </button>
+            <button
+              id="mode-trainer-btn"
+              className="btn btn-secondary"
+              onClick={() => {
+                setTrackingMode("trainer");
+                setState("tracking");
+              }}
+            >
+              Movement Trainer [T]
+            </button>
+            <button
+              id="goto-summary-btn"
+              className="btn btn-secondary"
+              onClick={() => {
+                setState("session_end");
+              }}
+            >
+              View Summary [S]
+            </button>
+          </div>
+        )}
+
         {state === "tracking" && (
           <div className="control-button-group">
             <button
@@ -664,6 +784,15 @@ export default function CalibrationFlow() {
               }}
             >
               End Session [Click / Space]
+            </button>
+            <button
+              id="switch-mode-btn"
+              className="btn btn-secondary"
+              onClick={() => {
+                setTrackingMode((prev) => (prev === "watcher" ? "trainer" : "watcher"));
+              }}
+            >
+              Switch Mode [{trackingMode === "watcher" ? "Trainer [T]" : "Watcher [W]"}]
             </button>
             <button
               id="recalibrate-btn"
