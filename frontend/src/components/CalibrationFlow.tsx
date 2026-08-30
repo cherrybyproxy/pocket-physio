@@ -10,6 +10,7 @@ import SessionSummary from "./SessionSummary";
 import { drawHudText, drawTargetArcGauge } from "../engine/drawUtils";
 
 type TrackingMode = "watcher" | "trainer";
+type TrainerSubMode = "freestyle" | "planned";
 
 type CalibState =
   | "loading"
@@ -29,6 +30,8 @@ const CALIB_DELAY = 5; // seconds
 export default function CalibrationFlow() {
   const [state, setState] = useState<CalibState>("loading");
   const [trackingMode, setTrackingMode] = useState<TrackingMode>("watcher");
+  const [trainerSubMode, setTrainerSubMode] = useState<TrainerSubMode>("freestyle");
+  const [plannedTargetReps, setPlannedTargetReps] = useState<number>(5);
   const [engineReady, setEngineReady] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -245,6 +248,10 @@ export default function CalibrationFlow() {
           setTrackingMode("watcher");
         } else if (e.key === "t" || e.key === "T") {
           setTrackingMode("trainer");
+        } else if (e.key === "f" || e.key === "F") {
+          setTrainerSubMode("freestyle");
+        } else if (e.key === "p" || e.key === "P") {
+          setTrainerSubMode("planned");
         } else if (e.key === " " || e.key === "Enter" || e.key === "c" || e.key === "C") {
           e.preventDefault();
           setState("session_end");
@@ -538,25 +545,81 @@ export default function CalibrationFlow() {
               ctx.restore();
             }
 
-            drawHudText(
-              ctx,
-              `curr: ${Math.round(fb.currentAngle)}° (${romPct}% ROM) | flex reps: ${fb.flexRepCount ?? 0} | ext reps: ${fb.extRepCount ?? 0} | hold: ${fb.holdTime.toFixed(1)}s / ${fb.targetHoldDuration.toFixed(1)}s`,
-              24,
-              y,
-              "#00ffcc",
-              fontSize
-            );
-            y += lineGap;
+            if (trainerSubMode === "planned") {
+              const flexDone = fb.flexRepCount >= plannedTargetReps;
+              const extDone = fb.extRepCount >= plannedTargetReps;
 
-            drawHudText(
-              ctx,
-              "flex (flexion) = knee bend  |  ext (extension) = leg straighten",
-              24,
-              y,
-              "rgba(255, 255, 255, 0.75)",
-              Math.round(fontSize * 0.8)
-            );
-            y += lineGap;
+              if (!flexDone) {
+                drawHudText(
+                  ctx,
+                  `curr: ${Math.round(fb.currentAngle)}° (${romPct}% ROM) | Flex Goal: ${fb.flexRepCount ?? 0} / ${plannedTargetReps} reps | hold: ${fb.holdTime.toFixed(1)}s / ${fb.targetHoldDuration.toFixed(1)}s`,
+                  24,
+                  y,
+                  "#00ffcc",
+                  fontSize
+                );
+                y += lineGap;
+                drawHudText(
+                  ctx,
+                  `Bend knee to flexion target & hold 1s. Return past 50% ROM to reset.`,
+                  24,
+                  y,
+                  "#ffffff",
+                  Math.round(fontSize * 0.85)
+                );
+                y += lineGap;
+              } else if (!extDone) {
+                drawHudText(
+                  ctx,
+                  `curr: ${Math.round(fb.currentAngle)}° (${romPct}% ROM) | Ext Goal: ${fb.extRepCount ?? 0} / ${plannedTargetReps} reps | hold: ${fb.holdTime.toFixed(1)}s / ${fb.targetHoldDuration.toFixed(1)}s`,
+                  24,
+                  y,
+                  "#67e8f9",
+                  fontSize
+                );
+                y += lineGap;
+                drawHudText(
+                  ctx,
+                  `Flexion Complete! Straighten leg to extension target & hold 1s.`,
+                  24,
+                  y,
+                  "#ffffff",
+                  Math.round(fontSize * 0.85)
+                );
+                y += lineGap;
+              } else {
+                drawHudText(
+                  ctx,
+                  `Planned Routine Complete! (${plannedTargetReps} Flexion + ${plannedTargetReps} Extension reps)`,
+                  24,
+                  y,
+                  "#00ffcc",
+                  fontSize
+                );
+                y += lineGap;
+              }
+            } else {
+              // Freestyle Sub-Mode
+              drawHudText(
+                ctx,
+                `curr: ${Math.round(fb.currentAngle)}° (${romPct}% ROM) | flex reps: ${fb.flexRepCount ?? 0} | ext reps: ${fb.extRepCount ?? 0} | hold: ${fb.holdTime.toFixed(1)}s / ${fb.targetHoldDuration.toFixed(1)}s`,
+                24,
+                y,
+                "#00ffcc",
+                fontSize
+              );
+              y += lineGap;
+
+              drawHudText(
+                ctx,
+                "flex (flexion) = knee bend  |  ext (extension) = leg straighten (50% ROM reset)",
+                24,
+                y,
+                "rgba(255, 255, 255, 0.75)",
+                Math.round(fontSize * 0.8)
+              );
+              y += lineGap;
+            }
 
             // Safety Disclaimer Banner
             drawHudText(
@@ -797,6 +860,32 @@ export default function CalibrationFlow() {
             >
               End Session [Click / Space]
             </button>
+
+            {trackingMode === "trainer" && (
+              <>
+                <button
+                  id="switch-submode-btn"
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    setTrainerSubMode((prev) => (prev === "freestyle" ? "planned" : "freestyle"));
+                  }}
+                >
+                  {trainerSubMode === "freestyle" ? "Planned Routine [P]" : "Freestyle [F]"}
+                </button>
+                {trainerSubMode === "planned" && (
+                  <button
+                    id="set-target-reps-btn"
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      setPlannedTargetReps((prev) => (prev === 5 ? 10 : prev === 10 ? 3 : 5));
+                    }}
+                  >
+                    Goal: {plannedTargetReps} Reps
+                  </button>
+                )}
+              </>
+            )}
+
             <button
               id="switch-mode-btn"
               className="btn btn-secondary"

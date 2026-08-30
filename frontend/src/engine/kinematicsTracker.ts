@@ -27,7 +27,7 @@ export interface TrackingFeedback {
   extRepCount: number; // completed leg straightenings
   movementPhase: MovementPhase;
   angularVelocity: number; // degrees per second (+ extending, - flexing)
-  
+
   // isometric hold metrics
   isHolding: boolean;
   holdTime: number; // current hold duration in seconds
@@ -46,7 +46,8 @@ export class KinematicsTracker {
   repCount: number = 0;
   flexRepCount: number = 0;
   extRepCount: number = 0;
-  private repState: "extended" | "flexing" | "flexed" | "extending" = "extended";
+  private flexLocked: boolean = false;
+  private extLocked: boolean = false;
 
   // tempo & hold state
   private lastAngle: number | null = null;
@@ -83,7 +84,8 @@ export class KinematicsTracker {
     this.repCount = 0;
     this.flexRepCount = 0;
     this.extRepCount = 0;
-    this.repState = "extended";
+    this.flexLocked = false;
+    this.extLocked = false;
     this.lastAngle = null;
     this.lastTimestampMs = null;
     this.currentVelocity = 0;
@@ -103,6 +105,8 @@ export class KinematicsTracker {
 
     const minA = this.minAngle ?? 45;
     const maxA = this.maxAngle ?? 160;
+    const romRange = Math.max(10, maxA - minA);
+    const romMidpoint = minA + romRange * 0.5;
 
     // target zones (within 5 degrees of calibrated boundaries, or going above and beyond)
     const flexThreshold = minA + 5;
@@ -110,6 +114,14 @@ export class KinematicsTracker {
 
     const isInFlexionTarget = val <= flexThreshold;
     const isInExtensionTarget = val >= extThreshold;
+
+    // unlock reps when returning past 50% ROM midpoint
+    if (val >= romMidpoint) {
+      this.flexLocked = false; // knee extended past midpoint -> unlocks next flexion rep
+    }
+    if (val <= romMidpoint) {
+      this.extLocked = false; // knee flexed past midpoint -> unlocks next extension rep
+    }
 
     // evaluate min/max threshold violation
     const isViolated =
@@ -129,9 +141,9 @@ export class KinematicsTracker {
     this.lastAngle = val;
     this.lastTimestampMs = timestampMs;
 
-    // 2. isometric hold detection at target flexion
+    // isometric hold detection at target flexion or extension
     let isHolding = false;
-    if (isInFlexionTarget && Math.abs(this.currentVelocity) < 25) {
+    if (isInFlexionTarget || isInExtensionTarget) {
       isHolding = true;
       if (this.holdStartTimestampMs === null) {
         this.holdStartTimestampMs = timestampMs;
@@ -145,21 +157,20 @@ export class KinematicsTracker {
 
       if (this.currentHoldTime >= this.targetHoldDuration) {
         this.holdCompletedThisRep = true;
+
+        // Count rep upon 1s hold completion if not locked
+        if (isInFlexionTarget && !this.flexLocked) {
+          this.flexRepCount += 1;
+          this.flexLocked = true;
+        } else if (isInExtensionTarget && !this.extLocked) {
+          this.extRepCount += 1;
+          this.repCount += 1;
+          this.extLocked = true;
+        }
       }
     } else {
       this.holdStartTimestampMs = null;
       this.currentHoldTime = 0;
-    }
-
-    // 3. repetition counter state machine
-    if (this.repState === "extended" && isInFlexionTarget) {
-      this.repState = "flexed";
-      this.flexRepCount += 1;
-    } else if (this.repState === "flexed" && isInExtensionTarget) {
-      this.repState = "extended";
-      this.extRepCount += 1;
-      this.repCount += 1;
-      this.holdCompletedThisRep = false;
     }
 
     // determine movement phase text

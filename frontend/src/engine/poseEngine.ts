@@ -69,10 +69,6 @@ function getAngle2d(a: Vec3, b: Vec3, c: Vec3): number {
   return (Math.acos(cosine) * 180) / Math.PI;
 }
 
-function getAngle(a: Vec3, b: Vec3, c: Vec3, isFrontal: boolean): number {
-  return isFrontal ? getAngle3d(a, b, c) : getAngle2d(a, b, c);
-}
-
 // check visibility from normalized landmarks array (matching calibration.py _landmarks_visible)
 function landmarksVisible(
   ...lms: (NormalizedLandmark | undefined)[]
@@ -235,9 +231,22 @@ export class PoseEngine {
     const lVisible = landmarksVisible(normLHip, normLKnee, normLAnkle);
     const rVisible = landmarksVisible(normRHip, normRKnee, normRAnkle);
 
-    // compute angles
-    const rawAngleL = getAngle(lHip, lKnee, lAnkle, frontal);
-    const rawAngleR = getAngle(rHip, rKnee, rAnkle, frontal);
+    // 2D planar vectors from normalized image landmarks (0-1 coords)
+    const normLHipVec: Vec3 = [normLHip.x, normLHip.y, 0];
+    const normLKneeVec: Vec3 = [normLKnee.x, normLKnee.y, 0];
+    const normLAnkleVec: Vec3 = [normLAnkle.x, normLAnkle.y, 0];
+    const normRHipVec: Vec3 = [normRHip.x, normRHip.y, 0];
+    const normRKneeVec: Vec3 = [normRKnee.x, normRKnee.y, 0];
+    const normRAnkleVec: Vec3 = [normRAnkle.x, normRAnkle.y, 0];
+
+    // compute angles: 3D world metric math for frontal mode, pure 2D image coordinates for side-on trainer tracking
+    const rawAngleL = frontal
+      ? getAngle3d(lHip, lKnee, lAnkle)
+      : getAngle2d(normLHipVec, normLKneeVec, normLAnkleVec);
+
+    const rawAngleR = frontal
+      ? getAngle3d(rHip, rKnee, rAnkle)
+      : getAngle2d(normRHipVec, normRKneeVec, normRAnkleVec);
 
     if (lVisible) {
       this.prevL = applyEma(rawAngleL, this.prevL, this.alpha);
