@@ -40,11 +40,13 @@ const RIGHT_JOINTS = new Set([24, 26, 28, 30, 32]);
 
 // draw the clean pose skeleton (torso + legs only, no face or arms).
 // landmarks are in normalized [0,1] coordinates relative to the video frame.
+// filterSide allows isolating left or right side during manual side-on calibration.
 export function drawSkeleton(
   ctx: CanvasRenderingContext2D,
   landmarks: NormalizedLandmark[],
   width: number,
-  height: number
+  height: number,
+  filterSide?: "left" | "right" | "all"
 ): void {
   if (!landmarks || landmarks.length === 0) return;
 
@@ -53,9 +55,17 @@ export function drawSkeleton(
   ctx.lineJoin = "round";
   ctx.lineWidth = 3.5;
 
-  // 1. draw clean bone connections without heavy bloom
+  // 1. draw clean bone connections
   for (const conn of LOWER_BODY_CONNECTIONS) {
     const [i, j] = conn.pair;
+
+    if (filterSide === "left" && (!LEFT_JOINTS.has(i) || !LEFT_JOINTS.has(j))) {
+      continue;
+    }
+    if (filterSide === "right" && (!RIGHT_JOINTS.has(i) || !RIGHT_JOINTS.has(j))) {
+      continue;
+    }
+
     const a = landmarks[i];
     const b = landmarks[j];
     if (!a || !b) continue;
@@ -71,8 +81,11 @@ export function drawSkeleton(
     ctx.stroke();
   }
 
-  // 2. draw joint dots only for torso & legs (no face or arm clutter)
+  // 2. draw joint dots only for relevant joints
   for (const i of VISIBLE_JOINTS) {
+    if (filterSide === "left" && !LEFT_JOINTS.has(i)) continue;
+    if (filterSide === "right" && !RIGHT_JOINTS.has(i)) continue;
+
     const lm = landmarks[i];
     if (!lm) continue;
 

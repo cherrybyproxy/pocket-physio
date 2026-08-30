@@ -559,6 +559,13 @@ export default function CalibrationFlow() {
   }
 
   const isFrontal = state.startsWith("auto_calibrate") || state === "mode_select";
+  const filterSide: "left" | "right" | "all" =
+    state === "manual_min_l" || state === "manual_max_l"
+      ? "left"
+      : state === "manual_min_r" || state === "manual_max_r"
+      ? "right"
+      : "all";
+
   const isActive =
     state === "auto_calibrate_countdown" ||
     state === "auto_calibrate" ||
@@ -570,6 +577,7 @@ export default function CalibrationFlow() {
       <CameraView
         engine={engineRef.current}
         isFrontal={isFrontal}
+        filterSide={filterSide}
         isActive={isActive}
         onFrame={onFrame}
         renderHud={renderHud}

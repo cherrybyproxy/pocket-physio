@@ -9,6 +9,8 @@ interface CameraViewProps {
   engine: PoseEngine;
   // whether to use 3D Euclidean angle (frontal auto-calib) or 2D planar angle (side-on manual/tracking)
   isFrontal?: boolean;
+  // filter skeleton rendering to specific leg during manual calibration
+  filterSide?: "left" | "right" | "all";
   // whether calibration or tracking is actively running
   isActive?: boolean;
   // called every frame with the latest pose state (or null if no detection)
@@ -27,6 +29,7 @@ interface CameraViewProps {
 export default function CameraView({
   engine,
   isFrontal,
+  filterSide,
   isActive,
   onFrame,
   renderHud,
@@ -48,6 +51,9 @@ export default function CameraView({
 
   const isFrontalRef = useRef(isFrontal);
   isFrontalRef.current = isFrontal;
+
+  const filterSideRef = useRef(filterSide);
+  filterSideRef.current = filterSide;
 
   // start webcam stream
   useEffect(() => {
@@ -127,7 +133,7 @@ export default function CameraView({
           ctx.translate(canvas.width, 0);
           ctx.scale(-1, 1);
           if (state?.normalizedLandmarks) {
-            drawSkeleton(ctx, state.normalizedLandmarks, canvas.width, canvas.height);
+            drawSkeleton(ctx, state.normalizedLandmarks, canvas.width, canvas.height, filterSideRef.current);
           }
           ctx.restore();
 
