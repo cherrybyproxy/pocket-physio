@@ -185,11 +185,11 @@ export function drawTargetArcGauge(
   const thighAngle = Math.atan2(hy - ky, hx - kx);
   const radius = Math.max(35, Math.min(65, height * 0.07));
 
-  // background target ROM track arc around knee
+  // background target ROM track arc around knee (darker leg side tone)
   ctx.beginPath();
   ctx.arc(kx, ky, radius, thighAngle - Math.PI * 0.65, thighAngle + Math.PI * 0.65);
   ctx.lineWidth = 5;
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
+  ctx.strokeStyle = injuredSide === "left" ? "rgba(180, 80, 0, 0.35)" : "rgba(0, 140, 160, 0.35)";
   ctx.stroke();
 
   // calculate active arc fill proportional to joint angle
@@ -199,12 +199,12 @@ export function drawTargetArcGauge(
   const angleRatio = Math.max(0, Math.min(1, (currentAngle - minA) / romRange));
   const activeArcAngle = thighAngle - Math.PI * 0.6 + angleRatio * (Math.PI * 1.2);
 
-  // arc color based on target proximity
-  let arcColor = injuredSide === "left" ? "#ff8c00" : "#00e5ff";
+  // arc color matching leg side but slightly darker
+  let arcColor = injuredSide === "left" ? "#cc6600" : "#008b9b"; // darker orange or darker teal
   if (currentAngle <= minA + 10) {
-    arcColor = "#00ffcc"; // glowing cyan when target flexion reached
+    arcColor = "#00aa88"; // target flexion reached (darker emerald)
   } else if (currentAngle >= maxA - 10) {
-    arcColor = "#3b82f6"; // bright blue when target extension reached
+    arcColor = "#1d4ed8"; // target extension reached (darker blue)
   }
 
   // draw active ROM fill arc

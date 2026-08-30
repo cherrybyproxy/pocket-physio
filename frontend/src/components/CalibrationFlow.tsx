@@ -437,7 +437,7 @@ export default function CalibrationFlow() {
       } else if (state === "tracking_mode_select") {
         drawHudText(
           ctx,
-          "Calibration Locked! Select Posture Tracking Mode:",
+          "Calibration Complete! Select Tracking Mode:",
           24,
           y,
           "#00ffcc",
@@ -540,11 +540,21 @@ export default function CalibrationFlow() {
 
             drawHudText(
               ctx,
-              `curr: ${Math.round(fb.currentAngle)}° (${romPct}% of ROM) | Reps: ${fb.repCount} | Hold: ${fb.holdTime.toFixed(1)}s / ${fb.targetHoldDuration.toFixed(1)}s`,
+              `curr: ${Math.round(fb.currentAngle)}° (${romPct}% ROM) | flex reps: ${fb.flexRepCount ?? 0} | ext reps: ${fb.extRepCount ?? 0} | hold: ${fb.holdTime.toFixed(1)}s / ${fb.targetHoldDuration.toFixed(1)}s`,
               24,
               y,
               "#00ffcc",
               fontSize
+            );
+            y += lineGap;
+
+            drawHudText(
+              ctx,
+              "flex (flexion) = knee bend  |  ext (extension) = leg straighten",
+              24,
+              y,
+              "rgba(255, 255, 255, 0.75)",
+              Math.round(fontSize * 0.8)
             );
             y += lineGap;
 
@@ -555,7 +565,7 @@ export default function CalibrationFlow() {
               24,
               y,
               "#ffaa00",
-              Math.round(fontSize * 0.8)
+              Math.round(fontSize * 0.78)
             );
           }
         } else if (anglesValid && !injVisible) {
@@ -649,8 +659,8 @@ export default function CalibrationFlow() {
     state === "manual_min_l" || state === "manual_max_l"
       ? "left"
       : state === "manual_min_r" || state === "manual_max_r"
-      ? "right"
-      : "all";
+        ? "right"
+        : "all";
 
   const isActive =
     state === "auto_calibrate_countdown" ||
@@ -792,7 +802,7 @@ export default function CalibrationFlow() {
                 setTrackingMode((prev) => (prev === "watcher" ? "trainer" : "watcher"));
               }}
             >
-              Switch Mode [{trackingMode === "watcher" ? "Trainer [T]" : "Watcher [W]"}]
+              Switch Mode {trackingMode === "watcher" ? "[T]" : "[W]"}
             </button>
             <button
               id="recalibrate-btn"

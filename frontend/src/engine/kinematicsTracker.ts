@@ -23,13 +23,15 @@ export interface TrackingFeedback {
 
   // repetition & tempo metrics
   repCount: number;
+  flexRepCount: number; // completed knee bends
+  extRepCount: number; // completed leg straightenings
   movementPhase: MovementPhase;
   angularVelocity: number; // degrees per second (+ extending, - flexing)
   
   // isometric hold metrics
   isHolding: boolean;
   holdTime: number; // current hold duration in seconds
-  targetHoldDuration: number; // 3.0s goal
+  targetHoldDuration: number; // 1.0s goal
   holdCompleted: boolean;
   totalHoldTime: number; // cumulative hold time across session
 }
@@ -42,6 +44,8 @@ export class KinematicsTracker {
 
   // repetition counter state
   repCount: number = 0;
+  flexRepCount: number = 0;
+  extRepCount: number = 0;
   private repState: "extended" | "flexing" | "flexed" | "extending" = "extended";
 
   // tempo & hold state
@@ -77,6 +81,8 @@ export class KinematicsTracker {
 
   resetRepStats(): void {
     this.repCount = 0;
+    this.flexRepCount = 0;
+    this.extRepCount = 0;
     this.repState = "extended";
     this.lastAngle = null;
     this.lastTimestampMs = null;
@@ -97,11 +103,10 @@ export class KinematicsTracker {
 
     const minA = this.minAngle ?? 45;
     const maxA = this.maxAngle ?? 160;
-    const currentRom = Math.max(10, maxA - minA);
 
-    // target zones (within 15% or 12 degrees of calibrated boundaries)
-    const flexThreshold = minA + Math.min(15, currentRom * 0.2);
-    const extThreshold = maxA - Math.min(15, currentRom * 0.2);
+    // target zones (within 5 degrees of calibrated boundaries, or going above and beyond)
+    const flexThreshold = minA + 5;
+    const extThreshold = maxA - 5;
 
     const isInFlexionTarget = val <= flexThreshold;
     const isInExtensionTarget = val >= extThreshold;
@@ -149,8 +154,10 @@ export class KinematicsTracker {
     // 3. repetition counter state machine
     if (this.repState === "extended" && isInFlexionTarget) {
       this.repState = "flexed";
+      this.flexRepCount += 1;
     } else if (this.repState === "flexed" && isInExtensionTarget) {
       this.repState = "extended";
+      this.extRepCount += 1;
       this.repCount += 1;
       this.holdCompletedThisRep = false;
     }
@@ -191,26 +198,28 @@ export class KinematicsTracker {
     }
 
     return {
-      currentAngle: val,
-      minAngle: minA,
-      maxAngle: maxA,
-      rom: this.rom,
+      currentAngle: val ?? 0,
+      minAngle: minA ?? 0,
+      maxAngle: maxA ?? 0,
+      rom: this.rom ?? 0,
       isViolated,
       angleColor,
-      injuredLoad,
-      healthyLoad,
-      leanDeg,
+      injuredLoad: injuredLoad ?? 0,
+      healthyLoad: healthyLoad ?? 0,
+      leanDeg: leanDeg ?? 0,
       leanColor,
       leanText,
 
-      repCount: this.repCount,
+      repCount: this.repCount ?? 0,
+      flexRepCount: this.flexRepCount ?? 0,
+      extRepCount: this.extRepCount ?? 0,
       movementPhase,
-      angularVelocity: Math.round(this.currentVelocity),
+      angularVelocity: Math.round(this.currentVelocity ?? 0),
       isHolding,
-      holdTime: Math.min(this.targetHoldDuration, Number(this.currentHoldTime.toFixed(1))),
+      holdTime: Math.min(this.targetHoldDuration, Number((this.currentHoldTime ?? 0).toFixed(1))),
       targetHoldDuration: this.targetHoldDuration,
       holdCompleted: this.holdCompletedThisRep,
-      totalHoldTime: Number(this.totalHoldTime.toFixed(1)),
+      totalHoldTime: Number((this.totalHoldTime ?? 0).toFixed(1)),
     };
   }
 }
