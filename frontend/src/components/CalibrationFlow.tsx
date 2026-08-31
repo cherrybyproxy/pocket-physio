@@ -436,7 +436,7 @@ export default function CalibrationFlow() {
         const lStr = leftValid
           ? `LEFT: curr: ${Math.round(pose.leftKneeAngle)}°`
           : "LEFT: curr: --° | ensure leg is visible";
-        drawHudText(ctx, lStr, 24, y, "#ff8c00", fontSize);
+        drawHudText(ctx, lStr, 24, y, "#AC3834", fontSize);
       } else if (state === "manual_max_l") {
         drawHudText(
           ctx,
@@ -451,7 +451,7 @@ export default function CalibrationFlow() {
         const lStr = leftValid
           ? `LEFT: curr: ${Math.round(pose.leftKneeAngle)}°`
           : "LEFT: curr: --° | ensure leg is visible";
-        drawHudText(ctx, lStr, 24, y, "#ff8c00", fontSize);
+        drawHudText(ctx, lStr, 24, y, "#AC3834", fontSize);
       } else if (state === "manual_min_r") {
         drawHudText(
           ctx,
@@ -466,7 +466,7 @@ export default function CalibrationFlow() {
         const rStr = rightValid
           ? `RIGHT: curr: ${Math.round(pose.rightKneeAngle)}°`
           : "RIGHT: curr: --° | ensure leg is visible";
-        drawHudText(ctx, rStr, 24, y, "#00e5ff", fontSize);
+        drawHudText(ctx, rStr, 24, y, "#4292C6", fontSize);
       } else if (state === "manual_max_r") {
         drawHudText(
           ctx,
@@ -481,7 +481,7 @@ export default function CalibrationFlow() {
         const rStr = rightValid
           ? `RIGHT: curr: ${Math.round(pose.rightKneeAngle)}°`
           : "RIGHT: curr: --° | ensure leg is visible";
-        drawHudText(ctx, rStr, 24, y, "#00e5ff", fontSize);
+        drawHudText(ctx, rStr, 24, y, "#4292C6", fontSize);
       } else if (state === "tracking_mode_select") {
         drawHudText(
           ctx,
@@ -511,7 +511,7 @@ export default function CalibrationFlow() {
         );
       } else if (state === "tracking") {
         const tracker = trackerRef.current;
-        const sideColor = tracker.injuredSide === "left" ? "#ff8c00" : "#00e5ff";
+        const sideColor = tracker.injuredSide === "left" ? "#AC3834" : "#4292C6";
         const modeTitle = trackingMode === "watcher" ? "Movement Watcher" : "Movement Trainer";
         const modeColor = sideColor;
 

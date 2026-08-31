@@ -13,24 +13,24 @@ interface ConnectionSpec {
 // focused lower-body & torso pose connections (face and arms excluded)
 const LOWER_BODY_CONNECTIONS: ConnectionSpec[] = [
   // left leg (orange)
-  { pair: [23, 25], color: "#ff8c00" },
-  { pair: [25, 27], color: "#ff8c00" },
-  { pair: [27, 29], color: "#ff8c00" },
-  { pair: [27, 31], color: "#ff8c00" },
-  { pair: [29, 31], color: "#ff8c00" },
+  { pair: [23, 25], color: "#AC3834" },
+  { pair: [25, 27], color: "#AC3834" },
+  { pair: [27, 29], color: "#AC3834" },
+  { pair: [27, 31], color: "#AC3834" },
+  { pair: [29, 31], color: "#AC3834" },
 
   // right leg (teal)
-  { pair: [24, 26], color: "#00e5ff" },
-  { pair: [26, 28], color: "#00e5ff" },
-  { pair: [28, 30], color: "#00e5ff" },
-  { pair: [28, 32], color: "#00e5ff" },
-  { pair: [30, 32], color: "#00e5ff" },
+  { pair: [24, 26], color: "#4292C6" },
+  { pair: [26, 28], color: "#4292C6" },
+  { pair: [28, 30], color: "#4292C6" },
+  { pair: [28, 32], color: "#4292C6" },
+  { pair: [30, 32], color: "#4292C6" },
 
   // torso frame (neutral white & side bounds)
   { pair: [11, 12], color: "#ffffff" }, // shoulders
   { pair: [23, 24], color: "#ffffff" }, // hips
-  { pair: [11, 23], color: "rgba(255, 140, 0, 0.7)" }, // left trunk
-  { pair: [12, 24], color: "rgba(0, 229, 255, 0.7)" }, // right trunk
+  { pair: [11, 23], color: "rgba(172, 56, 52, 0.7)" }, // left trunk
+  { pair: [12, 24], color: "rgba(66, 146, 198, 0.7)" }, // right trunk
 ];
 
 // visible joint landmark indices: shoulders (11,12), hips (23,24), knees (25,26), ankles (27,28), feet (29,30,31,32)
@@ -104,12 +104,12 @@ export function drawSkeleton(
 
     if (LEFT_JOINTS.has(i)) {
       // left leg: orange
-      ctx.fillStyle = "#ff8c00";
+      ctx.fillStyle = "#AC3834";
       ctx.strokeStyle = "#ffffff";
       ctx.lineWidth = isKeyJoint ? 2 : 1;
     } else if (RIGHT_JOINTS.has(i)) {
       // right leg: teal
-      ctx.fillStyle = "#00e5ff";
+      ctx.fillStyle = "#4292C6";
       ctx.strokeStyle = "#ffffff";
       ctx.lineWidth = isKeyJoint ? 2 : 1;
     } else {
@@ -189,7 +189,7 @@ export function drawTargetArcGauge(
   ctx.beginPath();
   ctx.arc(kx, ky, radius, thighAngle - Math.PI * 0.65, thighAngle + Math.PI * 0.65);
   ctx.lineWidth = 5;
-  ctx.strokeStyle = injuredSide === "left" ? "rgba(255, 140, 0, 0.25)" : "rgba(0, 229, 255, 0.25)";
+  ctx.strokeStyle = injuredSide === "left" ? "#881D1D" : "#08519C";
   ctx.stroke();
 
   // calculate active arc fill proportional to joint angle
@@ -200,7 +200,7 @@ export function drawTargetArcGauge(
   const activeArcAngle = thighAngle - Math.PI * 0.6 + angleRatio * (Math.PI * 1.2);
 
   // active moving arc color matching the side (Orange for left, Teal for right)
-  const arcColor = injuredSide === "left" ? "#ff8c00" : "#00e5ff";
+  const arcColor = injuredSide === "left" ? "#AC3834" : "#4292C6";
 
   // draw active ROM fill arc
   ctx.beginPath();
