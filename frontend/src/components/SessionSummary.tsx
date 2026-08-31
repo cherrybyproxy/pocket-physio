@@ -12,6 +12,7 @@ interface SessionSummaryProps {
   rom: number;
   bodyLeanMax: number;
   onNewSession: () => void;
+  onGoBack?: () => void;
 }
 
 // format military time with local timezone code (e.g. "19:30 EDT")
@@ -33,6 +34,7 @@ export default function SessionSummary({
   rom,
   bodyLeanMax,
   onNewSession,
+  onGoBack,
 }: SessionSummaryProps) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -95,6 +97,15 @@ export default function SessionSummary({
         </div>
 
         <div className="summary-actions">
+          {onGoBack && (
+            <button
+              id="go-back-btn"
+              className="btn btn-secondary"
+              onClick={onGoBack}
+            >
+              Go Back
+            </button>
+          )}
           {!saved ? (
             <button
               id="save-session-btn"

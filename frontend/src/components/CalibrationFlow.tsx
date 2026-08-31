@@ -85,6 +85,7 @@ export default function CalibrationFlow() {
 
   // session tracking for summary
   const sessionMaxLean = useRef(0);
+  const previousStateRef = useRef<CalibState>("tracking");
 
   // reset all session and calibration state back to mode selection screen
   const resetSession = useCallback(() => {
@@ -226,6 +227,7 @@ export default function CalibrationFlow() {
     } else if (state === "tracking_mode_select") {
       setState("tracking");
     } else if (state === "tracking") {
+      previousStateRef.current = "tracking";
       setState("session_end");
     }
   }, [state, startAutoCalib]);
@@ -266,6 +268,7 @@ export default function CalibrationFlow() {
           setTrackingMode("trainer");
           setState("tracking");
         } else if (e.key === "s" || e.key === "S") {
+          previousStateRef.current = "tracking_mode_select";
           setState("session_end");
         }
       } else if (
@@ -313,6 +316,7 @@ export default function CalibrationFlow() {
           setShowPlannedModal(true);
         } else if (e.key === " " || e.key === "Enter" || e.key === "c" || e.key === "C") {
           e.preventDefault();
+          previousStateRef.current = "tracking";
           setState("session_end");
         }
       }
@@ -779,6 +783,7 @@ export default function CalibrationFlow() {
         rom={Math.round(injRom)}
         bodyLeanMax={Math.round(sessionMaxLean.current)}
         onNewSession={resetSession}
+        onGoBack={() => setState(previousStateRef.current)}
       />
     );
   }
@@ -929,6 +934,7 @@ export default function CalibrationFlow() {
               id="goto-summary-btn"
               className="btn btn-secondary"
               onClick={() => {
+                previousStateRef.current = "tracking_mode_select";
                 setState("session_end");
               }}
             >
@@ -947,6 +953,7 @@ export default function CalibrationFlow() {
                 const injMin = tracker.injuredSide === "left" ? minL.current : minR.current;
                 const injMax = tracker.injuredSide === "left" ? maxL.current : maxR.current;
                 if (injMin !== null && injMax !== null) {
+                  previousStateRef.current = "tracking";
                   setState("session_end");
                 } else {
                   resetSession();
