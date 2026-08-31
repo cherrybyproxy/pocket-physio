@@ -353,36 +353,18 @@ export default function CalibrationFlow() {
       height: number
     ) => {
       const anglesValid = pose !== null;
-      const fontSize = Math.max(16, Math.round(height * 0.028));
-      const lineGap = Math.round(fontSize * 1.6);
-      let y = Math.round(height * 0.06);
+      const fontSize = Math.max(24, Math.round(height * 0.042));
+      const lineGap = Math.round(fontSize * 1.35);
+      let y = 20;
 
       if (state === "mode_select") {
         drawHudText(
           ctx,
-          "Press 'A' for Auto (Frontal) or 'M' for Manual (Side-on)",
+          "Select Auto (Frontal) or Manual (Side-on)",
           24,
           y,
           "#ffffff",
           fontSize
-        );
-        y += lineGap;
-        drawHudText(
-          ctx,
-          "Or use the control buttons below",
-          24,
-          y,
-          "rgba(255,255,255,0.7)",
-          Math.round(fontSize * 0.85)
-        );
-        y += lineGap;
-        drawHudText(
-          ctx,
-          "Press 'Q' to quit",
-          24,
-          y,
-          "rgba(255,255,255,0.7)",
-          Math.round(fontSize * 0.85)
         );
       } else if (state === "auto_calibrate_countdown") {
         const elapsed = (performance.now() - countdownStart.current) / 1000;
@@ -398,7 +380,7 @@ export default function CalibrationFlow() {
       } else if (state === "auto_calibrate") {
         drawHudText(
           ctx,
-          "Face frontal. Move both legs through ROM. Click or press Space to lock.",
+          "Move both legs through full ROM.",
           24,
           y,
           "#ffffff",
@@ -421,13 +403,13 @@ export default function CalibrationFlow() {
             : `RIGHT: curr: ${Math.round(pose.rightKneeAngle)}° | move through ROM`
           : "RIGHT: curr: --° | ensure leg is visible";
 
-        drawHudText(ctx, lStr, 24, y, leftValid ? "#67e8f9" : "#ff6600", fontSize);
+        drawHudText(ctx, lStr, 24, y, "#a855f7", fontSize);
         y += lineGap;
-        drawHudText(ctx, rStr, 24, y, rightValid ? "#67e8f9" : "#ff6600", fontSize);
+        drawHudText(ctx, rStr, 24, y, "#a855f7", fontSize);
       } else if (state === "manual_min_l") {
         drawHudText(
           ctx,
-          "Face LEFT side toward camera. Bend left knee. Click to lock.",
+          "Bend left knee.",
           24,
           y,
           "#ffffff",
@@ -438,11 +420,11 @@ export default function CalibrationFlow() {
         const lStr = leftValid
           ? `LEFT: curr: ${Math.round(pose.leftKneeAngle)}°`
           : "LEFT: curr: --° | ensure leg is visible";
-        drawHudText(ctx, lStr, 24, y, leftValid ? "#67e8f9" : "#ff6600", fontSize);
+        drawHudText(ctx, lStr, 24, y, "#ff8c00", fontSize);
       } else if (state === "manual_max_l") {
         drawHudText(
           ctx,
-          "Face LEFT side toward camera. Straighten left leg. Click to lock.",
+          "Straighten left leg.",
           24,
           y,
           "#ffffff",
@@ -453,11 +435,11 @@ export default function CalibrationFlow() {
         const lStr = leftValid
           ? `LEFT: curr: ${Math.round(pose.leftKneeAngle)}°`
           : "LEFT: curr: --° | ensure leg is visible";
-        drawHudText(ctx, lStr, 24, y, leftValid ? "#67e8f9" : "#ff6600", fontSize);
+        drawHudText(ctx, lStr, 24, y, "#ff8c00", fontSize);
       } else if (state === "manual_min_r") {
         drawHudText(
           ctx,
-          "Face RIGHT side toward camera. Bend right knee. Click to lock.",
+          "Bend right knee.",
           24,
           y,
           "#ffffff",
@@ -468,11 +450,11 @@ export default function CalibrationFlow() {
         const rStr = rightValid
           ? `RIGHT: curr: ${Math.round(pose.rightKneeAngle)}°`
           : "RIGHT: curr: --° | ensure leg is visible";
-        drawHudText(ctx, rStr, 24, y, rightValid ? "#67e8f9" : "#ff6600", fontSize);
+        drawHudText(ctx, rStr, 24, y, "#00e5ff", fontSize);
       } else if (state === "manual_max_r") {
         drawHudText(
           ctx,
-          "Face RIGHT side toward camera. Straighten right leg. Click to lock.",
+          "Straighten right leg.",
           24,
           y,
           "#ffffff",
@@ -483,20 +465,20 @@ export default function CalibrationFlow() {
         const rStr = rightValid
           ? `RIGHT: curr: ${Math.round(pose.rightKneeAngle)}°`
           : "RIGHT: curr: --° | ensure leg is visible";
-        drawHudText(ctx, rStr, 24, y, rightValid ? "#67e8f9" : "#ff6600", fontSize);
+        drawHudText(ctx, rStr, 24, y, "#00e5ff", fontSize);
       } else if (state === "tracking_mode_select") {
         drawHudText(
           ctx,
           "Calibration Complete! Select Tracking Mode:",
           24,
           y,
-          "#00ffcc",
+          "#a855f7",
           fontSize
         );
         y += lineGap;
         drawHudText(
           ctx,
-          "Press 'W' for Movement Watcher (Monitors Trunk Lean & Weight Offloading)",
+          "Movement Watcher (Monitors Trunk Lean & Weight Offloading)",
           24,
           y,
           "#ffffff",
@@ -505,29 +487,21 @@ export default function CalibrationFlow() {
         y += lineGap;
         drawHudText(
           ctx,
-          "Press 'T' for Movement Trainer (Target ROM Arcs, Reps & Holds)",
+          "Movement Trainer (Target ROM Arcs, Reps & Holds)",
           24,
           y,
-          "#67e8f9",
+          "#ffffff",
           fontSize
-        );
-        y += lineGap;
-        drawHudText(
-          ctx,
-          "Or press 'S' to View Session Summary directly",
-          24,
-          y,
-          "rgba(255,255,255,0.7)",
-          Math.round(fontSize * 0.85)
         );
       } else if (state === "tracking") {
         const tracker = trackerRef.current;
-        const modeTitle = trackingMode === "watcher" ? "MOVEMENT WATCHER" : "MOVEMENT TRAINER";
-        const modeColor = trackingMode === "watcher" ? "#44ff44" : "#00ffcc";
+        const sideColor = tracker.injuredSide === "left" ? "#ff8c00" : "#00e5ff";
+        const modeTitle = trackingMode === "watcher" ? "Movement Watcher" : "Movement Trainer";
+        const modeColor = sideColor;
 
         drawHudText(
           ctx,
-          `MODE: ${modeTitle} (${tracker.injuredSide.toUpperCase()} leg)`,
+          modeTitle,
           24,
           y,
           modeColor,
@@ -550,12 +524,13 @@ export default function CalibrationFlow() {
 
           if (trackingMode === "watcher") {
             // Movement Watcher Mode: Posture safety, trunk lean, weight offloading
+            const angleColor = fb.isViolated ? "#ff4444" : sideColor;
             drawHudText(
               ctx,
               `curr: ${Math.round(fb.currentAngle)}° (${romPct}% of ROM) | min: ${Math.round(fb.minAngle)}° | max: ${Math.round(fb.maxAngle)}°`,
               24,
               y,
-              fb.angleColor,
+              angleColor,
               fontSize
             );
             y += lineGap;
@@ -622,7 +597,7 @@ export default function CalibrationFlow() {
                   `Planned Routine Complete! (${plannedTargetReps} Flexion + ${plannedTargetReps} Extension reps)`,
                   24,
                   y,
-                  "#00ffcc",
+                  sideColor,
                   fontSize
                 );
                 y += lineGap;
@@ -633,7 +608,7 @@ export default function CalibrationFlow() {
                     `curr: ${Math.round(fb.currentAngle)}° (${romPct}% ROM) | Flex Goal: ${fb.flexRepCount ?? 0} / ${plannedTargetReps} reps | hold: ${fb.holdTime.toFixed(1)}s / ${fb.targetHoldDuration.toFixed(1)}s`,
                     24,
                     y,
-                    "#00ffcc",
+                    sideColor,
                     fontSize
                   );
                   y += lineGap;
@@ -652,7 +627,7 @@ export default function CalibrationFlow() {
                     `curr: ${Math.round(fb.currentAngle)}° (${romPct}% ROM) | Ext Goal: ${fb.extRepCount ?? 0} / ${plannedTargetReps} reps | hold: ${fb.holdTime.toFixed(1)}s / ${fb.targetHoldDuration.toFixed(1)}s`,
                     24,
                     y,
-                    "#67e8f9",
+                    sideColor,
                     fontSize
                   );
                   y += lineGap;
@@ -674,7 +649,7 @@ export default function CalibrationFlow() {
                   `curr: ${Math.round(fb.currentAngle)}° (${romPct}% ROM) | Flex: ${fb.flexRepCount ?? 0}/${plannedTargetReps} | Ext: ${fb.extRepCount ?? 0}/${plannedTargetReps} | hold: ${fb.holdTime.toFixed(1)}s / ${fb.targetHoldDuration.toFixed(1)}s`,
                   24,
                   y,
-                  targetMove === "Flexion" ? "#00ffcc" : "#67e8f9",
+                  sideColor,
                   fontSize
                 );
                 y += lineGap;
@@ -698,7 +673,7 @@ export default function CalibrationFlow() {
                 `curr: ${Math.round(fb.currentAngle)}° (${romPct}% ROM) | flex reps: ${fb.flexRepCount ?? 0} | ext reps: ${fb.extRepCount ?? 0} | hold: ${fb.holdTime.toFixed(1)}s / ${fb.targetHoldDuration.toFixed(1)}s`,
                 24,
                 y,
-                "#00ffcc",
+                sideColor,
                 fontSize
               );
               y += lineGap;
@@ -717,44 +692,26 @@ export default function CalibrationFlow() {
             // Safety Disclaimer Banner
             drawHudText(
               ctx,
-              "⚠️ Disclaimer: Proceed safely — sit or use support as recommended by your physical therapist.",
+              "Proceed safely. Sit or use support as recommended by your physical therapist.",
               24,
               y,
               "#ffaa00",
               Math.round(fontSize * 0.78)
             );
           }
-        } else if (anglesValid && !injVisible) {
-          drawHudText(
-            ctx,
-            "Injured leg out of frame. Ensure ankle & hip are visible.",
-            24,
-            y,
-            "#ff6600",
-            fontSize
-          );
         } else {
           drawHudText(
             ctx,
-            "Low confidence. Ensure full body is visible.",
+            `Move ${tracker.injuredSide} leg completely into the frame.`,
             24,
             y,
-            "#ff6600",
+            sideColor,
             fontSize
           );
         }
-
-        drawHudText(
-          ctx,
-          "Click window or 'End Session' for summary. Press 'W' for Watcher, 'T' for Trainer.",
-          24,
-          height - 24,
-          "rgba(255,255,255,0.7)",
-          Math.round(fontSize * 0.8)
-        );
       }
     },
-    [state, trackingMode]
+    [state, trackingMode, trainerSubMode, plannedTargetReps, plannedPattern]
   );
 
   if (errorMessage) {
@@ -847,14 +804,14 @@ export default function CalibrationFlow() {
               className="btn btn-primary"
               onClick={startAutoCalib}
             >
-              Auto Calibration (Frontal) [A]
+              Auto Calibration [A]
             </button>
             <button
               id="manual-calib-btn"
               className="btn btn-secondary"
               onClick={startManualCalib}
             >
-              Manual Calibration (Side-on) [M]
+              Manual Calibration [M]
             </button>
           </div>
         )}
@@ -872,7 +829,7 @@ export default function CalibrationFlow() {
               className="btn btn-primary"
               onClick={handleLockOrAdvance}
             >
-              Lock Range & Start Tracking [Space / Click]
+              Lock Range [Space / Click]
             </button>
             <button
               className="btn btn-secondary"

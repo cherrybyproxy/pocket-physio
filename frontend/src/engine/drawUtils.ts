@@ -126,7 +126,6 @@ export function drawSkeleton(
   ctx.restore();
 }
 
-// draw a line of hud text with subtle shadow for crisp readability
 export function drawHudText(
   ctx: CanvasRenderingContext2D,
   text: string,
@@ -137,6 +136,7 @@ export function drawHudText(
 ): void {
   ctx.save();
   ctx.font = `600 ${fontSize}px 'Inter', system-ui, -apple-system, sans-serif`;
+  ctx.textBaseline = "top";
 
   // clean subtle background shadow for contrast
   ctx.shadowColor = "rgba(0, 0, 0, 0.85)";
@@ -185,11 +185,11 @@ export function drawTargetArcGauge(
   const thighAngle = Math.atan2(hy - ky, hx - kx);
   const radius = Math.max(35, Math.min(65, height * 0.07));
 
-  // background target ROM track arc around knee (darker leg side tone)
+  // background target ROM track arc around knee (matching leg side tone)
   ctx.beginPath();
   ctx.arc(kx, ky, radius, thighAngle - Math.PI * 0.65, thighAngle + Math.PI * 0.65);
   ctx.lineWidth = 5;
-  ctx.strokeStyle = injuredSide === "left" ? "rgba(180, 80, 0, 0.35)" : "rgba(0, 140, 160, 0.35)";
+  ctx.strokeStyle = injuredSide === "left" ? "rgba(255, 140, 0, 0.25)" : "rgba(0, 229, 255, 0.25)";
   ctx.stroke();
 
   // calculate active arc fill proportional to joint angle
@@ -199,13 +199,8 @@ export function drawTargetArcGauge(
   const angleRatio = Math.max(0, Math.min(1, (currentAngle - minA) / romRange));
   const activeArcAngle = thighAngle - Math.PI * 0.6 + angleRatio * (Math.PI * 1.2);
 
-  // arc color matching leg side but slightly darker
-  let arcColor = injuredSide === "left" ? "#cc6600" : "#008b9b"; // darker orange or darker teal
-  if (currentAngle <= minA + 10) {
-    arcColor = "#00aa88"; // target flexion reached (darker emerald)
-  } else if (currentAngle >= maxA - 10) {
-    arcColor = "#1d4ed8"; // target extension reached (darker blue)
-  }
+  // active moving arc color matching the side (Orange for left, Teal for right)
+  const arcColor = injuredSide === "left" ? "#ff8c00" : "#00e5ff";
 
   // draw active ROM fill arc
   ctx.beginPath();
