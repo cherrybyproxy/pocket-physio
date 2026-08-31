@@ -227,8 +227,7 @@ export default function CalibrationFlow() {
     } else if (state === "tracking_mode_select") {
       setState("tracking");
     } else if (state === "tracking") {
-      previousStateRef.current = "tracking";
-      setState("session_end");
+      return;
     }
   }, [state, startAutoCalib]);
 
@@ -270,6 +269,9 @@ export default function CalibrationFlow() {
         } else if (e.key === "s" || e.key === "S") {
           previousStateRef.current = "tracking_mode_select";
           setState("session_end");
+        } else if (e.key === " " || e.key === "Enter" || e.key === "c" || e.key === "C") {
+          e.preventDefault();
+          handleLockOrAdvance();
         }
       } else if (
         state === "auto_calibrate_countdown" ||
@@ -314,8 +316,7 @@ export default function CalibrationFlow() {
         } else if (e.key === "p" || e.key === "P") {
           setTrackingMode("trainer");
           setShowPlannedModal(true);
-        } else if (e.key === " " || e.key === "Enter" || e.key === "c" || e.key === "C") {
-          e.preventDefault();
+        } else if (e.key === "s" || e.key === "S") {
           previousStateRef.current = "tracking";
           setState("session_end");
         }
@@ -938,31 +939,13 @@ export default function CalibrationFlow() {
                 setState("session_end");
               }}
             >
-              View Summary [S]
+              Summary [S]
             </button>
           </div>
         )}
 
         {state === "tracking" && (
           <div className="control-button-group">
-            <button
-              id="end-session-btn"
-              className="btn btn-primary"
-              onClick={() => {
-                const tracker = trackerRef.current;
-                const injMin = tracker.injuredSide === "left" ? minL.current : minR.current;
-                const injMax = tracker.injuredSide === "left" ? maxL.current : maxR.current;
-                if (injMin !== null && injMax !== null) {
-                  previousStateRef.current = "tracking";
-                  setState("session_end");
-                } else {
-                  resetSession();
-                }
-              }}
-            >
-              End Session [Click / Space]
-            </button>
-
             {trackingMode === "trainer" && (
               <>
                 {trainerSubMode === "planned" && (
@@ -1005,6 +988,23 @@ export default function CalibrationFlow() {
               onClick={resetSession}
             >
               Recalibrate [Q]
+            </button>
+            <button
+              id="end-session-btn"
+              className="btn btn-primary"
+              onClick={() => {
+                const tracker = trackerRef.current;
+                const injMin = tracker.injuredSide === "left" ? minL.current : minR.current;
+                const injMax = tracker.injuredSide === "left" ? maxL.current : maxR.current;
+                if (injMin !== null && injMax !== null) {
+                  previousStateRef.current = "tracking";
+                  setState("session_end");
+                } else {
+                  resetSession();
+                }
+              }}
+            >
+              Summary [S]
             </button>
           </div>
         )}
