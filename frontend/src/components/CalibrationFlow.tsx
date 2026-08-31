@@ -270,11 +270,27 @@ export default function CalibrationFlow() {
         }
       } else if (
         state === "auto_calibrate_countdown" ||
-        state === "auto_calibrate" ||
-        state.startsWith("manual_")
+        state === "auto_calibrate"
       ) {
         if (e.key === "q" || e.key === "Q") {
           resetSession();
+          return;
+        }
+        if (e.key === "m" || e.key === "M") {
+          startManualCalib();
+          return;
+        }
+        if (e.key === " " || e.key === "Enter" || e.key === "c" || e.key === "C") {
+          e.preventDefault();
+          handleLockOrAdvance();
+        }
+      } else if (state.startsWith("manual_")) {
+        if (e.key === "q" || e.key === "Q") {
+          resetSession();
+          return;
+        }
+        if (e.key === "a" || e.key === "A") {
+          startAutoCalib();
           return;
         }
         if (e.key === " " || e.key === "Enter" || e.key === "c" || e.key === "C") {
@@ -817,8 +833,23 @@ export default function CalibrationFlow() {
         )}
 
         {state === "auto_calibrate_countdown" && (
-          <div className="control-info">
-            <span>Get in position facing the camera...</span>
+          <div className="control-button-group">
+            <div className="control-info">
+              <span>Get in position facing the camera...</span>
+            </div>
+            <button
+              id="switch-to-manual-btn"
+              className="btn btn-secondary"
+              onClick={startManualCalib}
+            >
+              Switch to Manual [M]
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={resetSession}
+            >
+              Cancel [Q]
+            </button>
           </div>
         )}
 
@@ -830,6 +861,13 @@ export default function CalibrationFlow() {
               onClick={handleLockOrAdvance}
             >
               Lock Range [Space / Click]
+            </button>
+            <button
+              id="switch-to-manual-btn"
+              className="btn btn-secondary"
+              onClick={startManualCalib}
+            >
+              Switch to Manual [M]
             </button>
             <button
               className="btn btn-secondary"
@@ -847,7 +885,14 @@ export default function CalibrationFlow() {
               className="btn btn-primary"
               onClick={handleLockOrAdvance}
             >
-              Lock Angle & Next Step [Space / Click]
+              Lock Angle [Space / Click]
+            </button>
+            <button
+              id="switch-to-auto-btn"
+              className="btn btn-secondary"
+              onClick={startAutoCalib}
+            >
+              Switch to Auto [A]
             </button>
             <button
               className="btn btn-secondary"
@@ -945,7 +990,7 @@ export default function CalibrationFlow() {
                 setTrackingMode((prev) => (prev === "watcher" ? "trainer" : "watcher"));
               }}
             >
-              Switch Mode {trackingMode === "watcher" ? "[T]" : "[W]"}
+              {trackingMode === "watcher" ? "Switch to Training [T]" : "Switch to Watching [W]"}
             </button>
             <button
               id="recalibrate-btn"
