@@ -85,6 +85,9 @@ export default function CalibrationFlow() {
 
   // session tracking for summary
   const sessionMaxLean = useRef(0);
+  const sessionMaxLoad = useRef(0);
+  const hasWatchingDataRef = useRef(false);
+  const hasTrainingDataRef = useRef(false);
   const previousStateRef = useRef<CalibState>("tracking");
 
   // reset all session and calibration state back to mode selection screen
@@ -92,9 +95,13 @@ export default function CalibrationFlow() {
     minL.current = maxL.current = minR.current = maxR.current = null;
     engineRef.current.resetFilters();
     sessionMaxLean.current = 0;
+    sessionMaxLoad.current = 0;
+    hasWatchingDataRef.current = false;
+    hasTrainingDataRef.current = false;
     setShowPlannedModal(false);
     setPlannedInputError(null);
     trackerRef.current.updateLimits(null, null);
+    trackerRef.current.resetRepStats();
     setState("mode_select");
   }, []);
 
@@ -544,6 +551,10 @@ export default function CalibrationFlow() {
             : 0;
 
           if (trackingMode === "watcher") {
+            hasWatchingDataRef.current = true;
+            sessionMaxLean.current = Math.max(sessionMaxLean.current, Math.round(fb.leanDeg));
+            sessionMaxLoad.current = Math.max(sessionMaxLoad.current, Math.round(fb.injuredLoad));
+
             // Movement Watcher Mode: Posture safety, trunk lean, weight offloading
             const angleColor = fb.isViolated ? "#ff4444" : sideColor;
             drawHudText(
@@ -566,6 +577,7 @@ export default function CalibrationFlow() {
             y += lineGap;
             drawHudText(ctx, fb.leanText, 24, y, fb.leanColor, fontSize);
           } else {
+            hasTrainingDataRef.current = true;
             // Movement Trainer Mode: Target ROM Arc, Reps, Holds & Safety Disclaimer
             if (pose.normalizedLandmarks) {
               ctx.save();
@@ -783,6 +795,11 @@ export default function CalibrationFlow() {
         maxAngle={Math.round(injMax)}
         rom={Math.round(injRom)}
         bodyLeanMax={Math.round(sessionMaxLean.current)}
+        maxLoad={Math.round(sessionMaxLoad.current)}
+        flexReps={tracker.flexRepCount}
+        extReps={tracker.extRepCount}
+        hasWatchingData={hasWatchingDataRef.current}
+        hasTrainingData={hasTrainingDataRef.current}
         onNewSession={resetSession}
         onGoBack={() => setState(previousStateRef.current)}
       />

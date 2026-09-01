@@ -346,6 +346,20 @@ body {
   color: var(--accent);
 }
 
+.summary-divider {
+  border: 0;
+  height: 1px;
+  background: var(--border-subtle);
+  margin: 1.25rem 0 1rem 0;
+}
+
+.summary-section-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.75rem;
+}
+
 .summary-actions {
   display: flex;
   justify-content: center;
@@ -762,10 +776,6 @@ body {
 @media (max-width: 768px) {
   .camera-container video {
     aspect-ratio: auto;
-  }
-
-  .summary-grid {
-    grid-template-columns: 1fr;
   }
 
   .nav-links {

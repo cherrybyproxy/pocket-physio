@@ -10,7 +10,12 @@ interface SessionSummaryProps {
   minAngle: number;
   maxAngle: number;
   rom: number;
-  bodyLeanMax: number;
+  bodyLeanMax?: number;
+  maxLoad?: number;
+  flexReps?: number;
+  extReps?: number;
+  hasWatchingData?: boolean;
+  hasTrainingData?: boolean;
   onNewSession: () => void;
   onGoBack?: () => void;
 }
@@ -32,7 +37,12 @@ export default function SessionSummary({
   minAngle,
   maxAngle,
   rom,
-  bodyLeanMax,
+  bodyLeanMax = 0,
+  maxLoad = 0,
+  flexReps = 0,
+  extReps = 0,
+  hasWatchingData = false,
+  hasTrainingData = false,
   onNewSession,
   onGoBack,
 }: SessionSummaryProps) {
@@ -95,6 +105,40 @@ export default function SessionSummary({
             <span className="stat-value" style={{ fontSize: "1.1rem" }}>{getFormattedTime()}</span>
           </div>
         </div>
+
+        {hasTrainingData && (
+          <>
+            <hr className="summary-divider" />
+            <h3 className="summary-section-title">Movement Training</h3>
+            <div className="summary-grid">
+              <div className="summary-stat">
+                <span className="stat-label">Flexion Reps</span>
+                <span className="stat-value">{flexReps}</span>
+              </div>
+              <div className="summary-stat">
+                <span className="stat-label">Extension Reps</span>
+                <span className="stat-value">{extReps}</span>
+              </div>
+            </div>
+          </>
+        )}
+
+        {hasWatchingData && (
+          <>
+            <hr className="summary-divider" />
+            <h3 className="summary-section-title">Movement Watching</h3>
+            <div className="summary-grid">
+              <div className="summary-stat">
+                <span className="stat-label">Max Trunk Lean</span>
+                <span className="stat-value">{Math.round(bodyLeanMax)}°</span>
+              </div>
+              <div className="summary-stat">
+                <span className="stat-label">Max Load</span>
+                <span className="stat-value">{Math.round(maxLoad)}%</span>
+              </div>
+            </div>
+          </>
+        )}
 
         <div className="summary-actions">
           {onGoBack && (
