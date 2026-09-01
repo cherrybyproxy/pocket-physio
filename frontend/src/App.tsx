@@ -7,9 +7,11 @@ import { isAuthenticated, logout } from "./api/client";
 import CalibrationFlow from "./components/CalibrationFlow";
 import SessionHistory from "./components/SessionHistory";
 import AuthForm from "./components/AuthForm";
+import ShortcutsModal from "./components/ShortcutsModal";
 
 export default function App() {
   const [authed, setAuthed] = useState(isAuthenticated());
+  const [showShortcuts, setShowShortcuts] = useState(false);
 
   return (
     <BrowserRouter>
@@ -19,6 +21,14 @@ export default function App() {
           <div className="nav-links">
             <NavLink to="/" end>session</NavLink>
             <NavLink to="/history">history</NavLink>
+            <button
+              id="shortcuts-btn"
+              type="button"
+              className="btn-link nav-link-btn"
+              onClick={() => setShowShortcuts(true)}
+            >
+              shortcuts
+            </button>
             {authed ? (
               <button
                 id="logout-btn"
@@ -50,6 +60,9 @@ export default function App() {
             />
           </Routes>
         </main>
+        {showShortcuts && (
+          <ShortcutsModal onClose={() => setShowShortcuts(false)} />
+        )}
       </div>
     </BrowserRouter>
   );
