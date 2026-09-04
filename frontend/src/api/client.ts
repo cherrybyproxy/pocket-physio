@@ -104,7 +104,10 @@ export interface SessionRecord {
   minAngle: number;
   maxAngle: number;
   rom: number;
-  bodyLeanMax: number;
+  bodyLeanMax?: number;
+  maxLoad?: number;
+  flexReps?: number;
+  extReps?: number;
   createdAt: string;
   isGuest?: boolean;
 }
@@ -116,7 +119,10 @@ export interface SaveSessionPayload {
   minAngle: number;
   maxAngle: number;
   rom: number;
-  bodyLeanMax: number;
+  bodyLeanMax?: number;
+  maxLoad?: number;
+  flexReps?: number;
+  extReps?: number;
 }
 
 function getTabSessions(): SessionRecord[] {
@@ -153,7 +159,10 @@ export async function saveSession(session: SaveSessionPayload): Promise<SessionR
     minAngle: Math.min(360, Math.max(0, Math.round(session.minAngle))),
     maxAngle: Math.min(360, Math.max(0, Math.round(session.maxAngle))),
     rom: Math.min(360, Math.max(0, Math.round(session.rom))),
-    bodyLeanMax: Math.min(90, Math.max(0, Math.round(session.bodyLeanMax))),
+    bodyLeanMax: Math.min(90, Math.max(0, Math.round(session.bodyLeanMax ?? 0))),
+    maxLoad: Math.min(100, Math.max(0, Math.round(session.maxLoad ?? 0))),
+    flexReps: Math.max(0, Math.round(session.flexReps ?? 0)),
+    extReps: Math.max(0, Math.round(session.extReps ?? 0)),
   };
 
   if (!isAuthenticated()) {

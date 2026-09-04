@@ -20,6 +20,9 @@ export class SessionsService {
         maxAngle: dto.maxAngle,
         rom: dto.rom,
         bodyLeanMax: dto.bodyLeanMax ?? 0,
+        maxLoad: dto.maxLoad ?? 0,
+        flexReps: dto.flexReps ?? 0,
+        extReps: dto.extReps ?? 0,
       },
     });
   }

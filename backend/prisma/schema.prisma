@@ -28,6 +28,9 @@ model Session {
   maxAngle    Int      // maximum angle reached
   rom         Int      // range of motion (max - min)
   bodyLeanMax Int      @default(0)
+  maxLoad     Int      @default(0)
+  flexReps    Int      @default(0)
+  extReps     Int      @default(0)
   createdAt   DateTime @default(now())
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 

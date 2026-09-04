@@ -34,4 +34,20 @@ export class CreateSessionDto {
   @Min(0)
   @Max(180)
   bodyLeanMax?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  maxLoad?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  flexReps?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  extReps?: number;
 }

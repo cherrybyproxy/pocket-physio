@@ -64,6 +64,9 @@ export default function SessionSummary({
         maxAngle: Math.round(maxAngle),
         rom: Math.round(rom),
         bodyLeanMax: Math.min(90, Math.max(0, Math.round(bodyLeanMax))),
+        maxLoad: Math.min(100, Math.max(0, Math.round(maxLoad))),
+        flexReps: Math.max(0, Math.round(flexReps)),
+        extReps: Math.max(0, Math.round(extReps)),
       });
       setSaved(true);
       setSaveNote(
