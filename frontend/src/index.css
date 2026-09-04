@@ -1094,26 +1094,6 @@ body {
   background: var(--bg-surface-hover);
 }
 
-.source-tag {
-  display: inline-block;
-  font-size: 0.72rem;
-  font-weight: 500;
-  padding: 0.15rem 0.45rem;
-  border-radius: 4px;
-}
-
-.source-tag.local {
-  background: rgba(251, 191, 36, 0.12);
-  color: #fbbf24;
-  border: 1px solid rgba(251, 191, 36, 0.2);
-}
-
-.source-tag.cloud {
-  background: rgba(52, 211, 153, 0.12);
-  color: #34d399;
-  border: 1px solid rgba(52, 211, 153, 0.2);
-}
-
 .empty-text {
   color: var(--text-muted);
   font-size: 0.9rem;

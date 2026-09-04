@@ -152,11 +152,7 @@ export default function SessionHistory() {
                             <td style={{ fontWeight: 600, color: "var(--accent)" }}>
                               {s.rom !== undefined ? `${s.rom}°` : "--"}
                             </td>
-                            <td>
-                              <span className={s.isGuest ? "source-tag local" : "source-tag cloud"}>
-                                {s.isGuest ? "Local" : "Cloud"}
-                              </span>
-                            </td>
+                            <td>{s.isGuest ? "Local" : "Cloud"}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -207,7 +203,6 @@ export default function SessionHistory() {
                               <th>Injured Side</th>
                               <th>Max Trunk Lean</th>
                               <th>Max Load</th>
-                              <th>Status</th>
                               <th>Source</th>
                             </tr>
                           </thead>
@@ -223,22 +218,7 @@ export default function SessionHistory() {
                                 <td style={{ color: "#4292C6", fontWeight: 600 }}>
                                   {s.maxLoad !== undefined ? `${s.maxLoad}%` : "0%"}
                                 </td>
-                                <td>
-                                  {(s.bodyLeanMax ?? 0) > 15 ? (
-                                    <span className="source-tag" style={{ background: "rgba(172, 56, 52, 0.2)", color: "#f87171" }}>
-                                      Compensation
-                                    </span>
-                                  ) : (
-                                    <span className="source-tag" style={{ background: "rgba(52, 211, 153, 0.15)", color: "#34d399" }}>
-                                      Good Form
-                                    </span>
-                                  )}
-                                </td>
-                                <td>
-                                  <span className={s.isGuest ? "source-tag local" : "source-tag cloud"}>
-                                    {s.isGuest ? "Local" : "Cloud"}
-                                  </span>
-                                </td>
+                                <td>{s.isGuest ? "Local" : "Cloud"}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -310,11 +290,7 @@ export default function SessionHistory() {
                                 <td style={{ fontWeight: 600, color: "#a78bfa" }}>
                                   {(s.flexReps ?? 0) + (s.extReps ?? 0)}
                                 </td>
-                                <td>
-                                  <span className={s.isGuest ? "source-tag local" : "source-tag cloud"}>
-                                    {s.isGuest ? "Local" : "Cloud"}
-                                  </span>
-                                </td>
+                                <td>{s.isGuest ? "Local" : "Cloud"}</td>
                               </tr>
                             ))}
                           </tbody>
