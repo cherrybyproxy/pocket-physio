@@ -11,6 +11,7 @@ interface ShortcutItem {
 }
 
 const SHORTCUTS: ShortcutItem[] = [
+  { command: "?", action: "Open / close shortcuts manual", stageSpecific: "No" },
   { command: "M", action: "Manual calibration", stageSpecific: "Yes" },
   { command: "A", action: "Auto calibration", stageSpecific: "Yes" },
   { command: "Space / Click", action: "Lock angle / range & advance", stageSpecific: "No" },
@@ -20,6 +21,7 @@ const SHORTCUTS: ShortcutItem[] = [
   { command: "P", action: "Planned routine configuration", stageSpecific: "Yes" },
   { command: "S", action: "Summary (End session)", stageSpecific: "Yes" },
   { command: "Q", action: "Cancel / Recalibrate", stageSpecific: "No" },
+  { command: "Esc", action: "Close modal / dialog", stageSpecific: "No" },
 ];
 
 export default function ShortcutsModal({ onClose }: ShortcutsModalProps) {

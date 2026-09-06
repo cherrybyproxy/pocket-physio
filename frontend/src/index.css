@@ -130,6 +130,20 @@ body {
   border: 1px solid var(--border-subtle);
 }
 
+.nav-kbd {
+  font-size: 0.68rem;
+  padding: 0.1rem 0.35rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-family: inherit;
+  margin-left: 0.35rem;
+  font-weight: 600;
+  line-height: 1;
+  display: inline-block;
+}
+
 /* ── main content ── */
 .main-content {
   flex: 1;

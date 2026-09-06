@@ -1,7 +1,7 @@
 // root layout with nav, optional auth gate, and routes.
 // all session and history features are available to guest and authenticated users.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from "react-router-dom";
 import { isAuthenticated, logout } from "./api/client";
 import CalibrationFlow from "./components/CalibrationFlow";
@@ -13,6 +13,21 @@ export default function App() {
   const [authed, setAuthed] = useState(isAuthenticated());
   const [showShortcuts, setShowShortcuts] = useState(false);
 
+  useEffect(() => {
+    function handleGlobalKeyDown(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable) {
+        return;
+      }
+      if (e.key === "?" || (e.key === "/" && e.shiftKey)) {
+        e.preventDefault();
+        setShowShortcuts((prev) => !prev);
+      }
+    }
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+  }, []);
+
   return (
     <BrowserRouter>
       <div className="app-shell">
@@ -22,7 +37,7 @@ export default function App() {
             <NavLink to="/" end>session</NavLink>
             <NavLink to="/history">history</NavLink>
             <button
-              id="shortcuts-btn"
+              id="nav-shortcuts-btn"
               type="button"
               className="btn-link nav-link-btn"
               onClick={() => setShowShortcuts(true)}

@@ -7,6 +7,7 @@ import { PoseEngine, type PoseState } from "../engine/poseEngine";
 import { KinematicsTracker } from "../engine/kinematicsTracker";
 import CameraView from "./CameraView";
 import SessionSummary from "./SessionSummary";
+import ShortcutsModal from "./ShortcutsModal";
 import { drawHudText, drawTargetArcGauge } from "../engine/drawUtils";
 
 type TrackingMode = "watcher" | "trainer";
@@ -38,6 +39,7 @@ export default function CalibrationFlow() {
 
   // planned routine modal pop-up state
   const [showPlannedModal, setShowPlannedModal] = useState<boolean>(false);
+  const [showShortcutsModal, setShowShortcutsModal] = useState<boolean>(false);
   const [isTrainingCompleteModal, setIsTrainingCompleteModal] = useState<boolean>(false);
   const [plannedRepInput, setPlannedRepInput] = useState<string>("5");
   const [plannedDurationInput, setPlannedDurationInput] = useState<string>("1.0");
@@ -852,6 +854,13 @@ export default function CalibrationFlow() {
             >
               Manual Calibration [M]
             </button>
+            <button
+              id="shortcuts-btn"
+              className="btn btn-secondary"
+              onClick={() => setShowShortcutsModal(true)}
+            >
+              Shortcuts [?]
+            </button>
           </div>
         )}
 
@@ -1136,6 +1145,10 @@ export default function CalibrationFlow() {
               </div>
             </div>
           </div>
+        )}
+
+        {showShortcutsModal && (
+          <ShortcutsModal onClose={() => setShowShortcutsModal(false)} />
         )}
       </div>
     </div>
