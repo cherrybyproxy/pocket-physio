@@ -40,6 +40,8 @@ export default function CalibrationFlow() {
   // planned routine modal pop-up state
   const [showPlannedModal, setShowPlannedModal] = useState<boolean>(false);
   const [showShortcutsModal, setShowShortcutsModal] = useState<boolean>(false);
+  const [showRecalibrateModal, setShowRecalibrateModal] = useState<boolean>(false);
+  const [recalibrateCountdown, setRecalibrateCountdown] = useState<number>(5);
   const [isTrainingCompleteModal, setIsTrainingCompleteModal] = useState<boolean>(false);
   const [plannedRepInput, setPlannedRepInput] = useState<string>("5");
   const [plannedDurationInput, setPlannedDurationInput] = useState<string>("1.0");
@@ -52,6 +54,25 @@ export default function CalibrationFlow() {
   const trackerRef = useRef(new KinematicsTracker("left"));
   const latestPoseRef = useRef<PoseState | null>(null);
   const completionTriggeredRef = useRef<boolean>(false);
+
+  // 5-second auto-closing countdown for recalibration confirmation modal
+  useEffect(() => {
+    if (!showRecalibrateModal) return;
+
+    setRecalibrateCountdown(5);
+    const interval = setInterval(() => {
+      setRecalibrateCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          setShowRecalibrateModal(false);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [showRecalibrateModal]);
 
   const handleSavePlannedConfig = useCallback(() => {
     const parsedReps = parseInt(plannedRepInput.trim(), 10);
@@ -94,6 +115,7 @@ export default function CalibrationFlow() {
 
   // reset all session and calibration state back to mode selection screen
   const resetSession = useCallback(() => {
+    setShowRecalibrateModal(false);
     minL.current = maxL.current = minR.current = maxR.current = null;
     engineRef.current.resetFilters();
     sessionMaxLean.current = 0;
@@ -246,6 +268,19 @@ export default function CalibrationFlow() {
       if (showPlannedModal) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 
+      // handle shortcuts inside recalibration confirmation modal
+      if (showRecalibrateModal) {
+        if (e.key === "q" || e.key === "Q" || e.key === "y" || e.key === "Y" || e.key === "Enter") {
+          e.preventDefault();
+          setShowRecalibrateModal(false);
+          resetSession();
+        } else if (e.key === "Escape" || e.key === "n" || e.key === "N") {
+          e.preventDefault();
+          setShowRecalibrateModal(false);
+        }
+        return;
+      }
+
       // ignore typing in form inputs
       if (
         document.activeElement?.tagName === "INPUT" ||
@@ -313,7 +348,7 @@ export default function CalibrationFlow() {
         }
       } else if (state === "tracking") {
         if (e.key === "q" || e.key === "Q") {
-          resetSession();
+          setShowRecalibrateModal(true);
           return;
         }
         if (e.key === "w" || e.key === "W") {
@@ -334,7 +369,7 @@ export default function CalibrationFlow() {
 
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [state, startAutoCalib, startManualCalib, handleLockOrAdvance, resetSession]);
+  }, [state, showPlannedModal, showRecalibrateModal, startAutoCalib, startManualCalib, handleLockOrAdvance, resetSession]);
 
   // per-frame callback: update calibration accumulators during auto-calibrate
   const onFrame = useCallback(
@@ -1011,7 +1046,8 @@ export default function CalibrationFlow() {
             <button
               id="recalibrate-btn"
               className="btn btn-secondary"
-              onClick={resetSession}
+              onClick={() => setShowRecalibrateModal(true)}
+              title="Recalibrate session [Q]"
             >
               Recalibrate [Q]
             </button>
@@ -1032,6 +1068,35 @@ export default function CalibrationFlow() {
             >
               Summary [S]
             </button>
+          </div>
+        )}
+
+        {showRecalibrateModal && (
+          <div className="modal-backdrop" onClick={() => setShowRecalibrateModal(false)}>
+            <div className="glass-card confirm-modal" onClick={(e) => e.stopPropagation()}>
+              <h3 style={{ margin: "0 0 1rem 0", fontSize: "0.95rem", fontWeight: 500, color: "var(--text-primary)", textAlign: "center" }}>
+                Recalibrate? <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>({recalibrateCountdown}s)</span>
+              </h3>
+              <div style={{ display: "flex", gap: "0.75rem", justifyContent: "center" }}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => {
+                    setShowRecalibrateModal(false);
+                    resetSession();
+                  }}
+                >
+                  Yes [Q]
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setShowRecalibrateModal(false)}
+                >
+                  No [Esc]
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
