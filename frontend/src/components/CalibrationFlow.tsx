@@ -468,9 +468,9 @@ export default function CalibrationFlow() {
             : `RIGHT: curr: ${Math.round(pose.rightKneeAngle)}° | move through ROM`
           : "RIGHT: curr: --° | ensure leg is visible";
 
-        drawHudText(ctx, lStr, 24, y, "#a855f7", fontSize);
+        drawHudText(ctx, lStr, 24, y, "#89429b", fontSize);
         y += lineGap;
-        drawHudText(ctx, rStr, 24, y, "#a855f7", fontSize);
+        drawHudText(ctx, rStr, 24, y, "#89429b", fontSize);
       } else if (state === "manual_min_l") {
         drawHudText(
           ctx,
@@ -537,7 +537,7 @@ export default function CalibrationFlow() {
           "Calibration Complete! Select Tracking Mode:",
           24,
           y,
-          "#a855f7",
+          "#89429b",
           fontSize
         );
         y += lineGap;
