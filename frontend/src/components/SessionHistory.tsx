@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import { getSessions, isAuthenticated, type SessionRecord } from "../api/client";
 import { Link } from "react-router-dom";
+import ActivityHeatmap from "./ActivityHeatmap";
 import SessionHistoryChart from "./SessionHistoryChart";
 import WatchingHistoryChart from "./WatchingHistoryChart";
 import TrainingHistoryChart from "./TrainingHistoryChart";
@@ -95,6 +96,8 @@ export default function SessionHistory() {
         </div>
 
         {error && <p className="error-text">{error}</p>}
+
+        {authed && <ActivityHeatmap sessions={sessions} />}
 
         {sessions.length === 0 ? (
           <p className="empty-text">

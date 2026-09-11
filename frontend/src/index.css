@@ -702,6 +702,177 @@ body {
   margin-bottom: 1rem;
 }
 
+/* ── activity heatmap calendar ── */
+.activity-heatmap-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: 0.85rem 1rem 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.heatmap-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.6rem;
+}
+
+.heatmap-title-group {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.heatmap-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.heatmap-subtitle {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.heatmap-scroll-wrapper {
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-muted) transparent;
+}
+
+.heatmap-separated-container {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: fit-content;
+}
+
+.heatmap-day-labels-col {
+  display: flex;
+  flex-direction: column;
+  width: 24px;
+  flex-shrink: 0;
+}
+
+.heatmap-day-label {
+  font-size: 8.5px;
+  color: var(--text-muted);
+  line-height: 12px;
+  user-select: none;
+}
+
+.heatmap-months-cluster {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.heatmap-month-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.heatmap-month-title {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-muted);
+  height: 16px;
+  display: flex;
+  align-items: center;
+  user-select: none;
+}
+
+.heatmap-svg {
+  display: block;
+}
+
+.heatmap-cell {
+  transition: fill 100ms ease, transform 100ms ease;
+}
+
+.heatmap-cell.level-0 {
+  fill: var(--bg-surface);
+  stroke: var(--border-subtle);
+  stroke-width: 0.5px;
+}
+
+.heatmap-cell.level-1 {
+  fill: #4a2554;
+}
+
+.heatmap-cell.level-2 {
+  fill: #6d367c;
+}
+
+.heatmap-cell.level-3 {
+  fill: #89429b;
+}
+
+.heatmap-cell:hover {
+  cursor: pointer;
+  filter: brightness(1.3);
+}
+
+.heatmap-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.5rem;
+}
+
+.heatmap-legend {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.legend-text {
+  font-size: 9px;
+  color: var(--text-muted);
+  margin: 0 0.15rem;
+}
+
+.legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.legend-swatch.level-0 {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+}
+
+.legend-swatch.level-1 {
+  background: #4a2554;
+}
+
+.legend-swatch.level-2 {
+  background: #6d367c;
+}
+
+.legend-swatch.level-3 {
+  background: #89429b;
+}
+
+.heatmap-tooltip {
+  position: fixed;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-sm);
+  padding: 0.35rem 0.6rem;
+  font-size: 0.72rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 1000;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.65);
+}
+
 /* ── session history line chart (ROM only) ── */
 .history-chart-container {
   background: var(--bg-secondary);
