@@ -64,6 +64,7 @@ export default function ActivityHeatmap({ sessions }: ActivityHeatmapProps) {
       const monthName = targetDate.toLocaleDateString("en-US", { month: "short" });
 
       const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+      const maxDay = offset === 0 ? Math.min(daysInMonth, today.getDate()) : daysInMonth;
       const firstDay = new Date(year, monthIndex, 1);
       // Sunday = 0, Monday = 1, ... Saturday = 6
       const startDow = firstDay.getDay();
@@ -76,7 +77,7 @@ export default function ActivityHeatmap({ sessions }: ActivityHeatmapProps) {
         currentWeek.push(null);
       }
 
-      for (let day = 1; day <= daysInMonth; day++) {
+      for (let day = 1; day <= maxDay; day++) {
         const date = new Date(year, monthIndex, day);
         const yyyy = year;
         const mm = String(monthIndex + 1).padStart(2, "0");
