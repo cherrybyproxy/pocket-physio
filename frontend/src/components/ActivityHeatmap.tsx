@@ -127,58 +127,146 @@ export default function ActivityHeatmap({ sessions }: ActivityHeatmapProps) {
     };
   }, [sessionCountsByDate]);
 
+  // calculate current streak and longest historical streak
+  const { currentStreak, maxStreak } = useMemo(() => {
+    const today = new Date();
+    const formatDate = (d: Date) => {
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      return `${yyyy}-${mm}-${dd}`;
+    };
+
+    const checkDate = new Date(today);
+    const todayStr = formatDate(checkDate);
+
+    // if today has no sessions yet, check if yesterday was active to keep streak alive
+    if (!sessionCountsByDate.has(todayStr)) {
+      checkDate.setDate(checkDate.getDate() - 1);
+      const yesterdayStr = formatDate(checkDate);
+      if (!sessionCountsByDate.has(yesterdayStr)) {
+        // current streak is 0
+      }
+    }
+
+    let curr = 0;
+    const tempDate = new Date(checkDate);
+    while (sessionCountsByDate.has(formatDate(tempDate))) {
+      curr++;
+      tempDate.setDate(tempDate.getDate() - 1);
+    }
+
+    // calculate historical max streak
+    const sortedDates = Array.from(sessionCountsByDate.keys()).sort();
+    let max = 0;
+    let running = 0;
+    let prevTime = 0;
+
+    for (const dateStr of sortedDates) {
+      const [y, m, d] = dateStr.split("-").map(Number);
+      const time = new Date(y, m - 1, d).getTime();
+      const oneDay = 24 * 60 * 60 * 1000;
+
+      if (prevTime === 0 || time - prevTime === oneDay) {
+        running++;
+      } else if (time !== prevTime) {
+        running = 1;
+      }
+      max = Math.max(max, running);
+      prevTime = time;
+    }
+
+    return {
+      currentStreak: curr,
+      maxStreak: Math.max(max, curr),
+    };
+  }, [sessionCountsByDate]);
+
   const gridHeight = 7 * (CELL_SIZE + CELL_GAP);
 
   return (
-    <div className="activity-heatmap-card">
-      <div className="heatmap-header">
-        <div className="heatmap-title-group">
-          <span className="heatmap-title">Activity Calendar</span>
-          <span className="heatmap-subtitle">
-            {totalQualifyingSessions} session{totalQualifyingSessions === 1 ? "" : "s"} in past 3 months
-          </span>
+    <div className="activity-heatmap-card split-container">
+      {/* Left Half: Activity Calendar (Centered) */}
+      <div className="split-half calendar-half">
+        <div className="heatmap-header">
+          <div className="heatmap-title-group">
+            <span className="heatmap-title">Activity Calendar</span>
+            <span className="heatmap-subtitle">
+              {totalQualifyingSessions} session{totalQualifyingSessions === 1 ? "" : "s"} in past 3 months
+            </span>
+          </div>
+        </div>
+
+        <div className="heatmap-scroll-wrapper">
+          <div className="heatmap-separated-container">
+            {/* 3 Distinct Month Clusters */}
+            <div className="heatmap-months-cluster">
+              {monthGroups.map((group) => {
+                const monthWidth = group.weeks.length * (CELL_SIZE + CELL_GAP);
+                return (
+                  <div key={`${group.year}-${group.monthIndex}`} className="heatmap-month-block">
+                    <div className="heatmap-month-title">{group.name}</div>
+                    <svg width={monthWidth} height={gridHeight} className="heatmap-svg">
+                      {group.weeks.map((week, wIdx) =>
+                        week.map((dayCell, dIdx) => {
+                          if (!dayCell) return null;
+                          const x = wIdx * (CELL_SIZE + CELL_GAP);
+                          const y = dIdx * (CELL_SIZE + CELL_GAP);
+                          return (
+                            <rect
+                              key={dayCell.dateStr}
+                              x={x}
+                              y={y}
+                              width={CELL_SIZE}
+                              height={CELL_SIZE}
+                              rx={2}
+                              ry={2}
+                              className={`heatmap-cell level-${dayCell.level}`}
+                              onMouseEnter={(e) => {
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                setHoveredCell({
+                                  cell: dayCell,
+                                  x: rect.left + rect.width / 2,
+                                  y: rect.top - 8,
+                                });
+                              }}
+                              onMouseLeave={() => setHoveredCell(null)}
+                            />
+                          );
+                        })
+                      )}
+                    </svg>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="heatmap-scroll-wrapper">
-        <div className="heatmap-separated-container">
-          {/* 4 Distinct Month Clusters */}
-          <div className="heatmap-months-cluster">
-            {monthGroups.map((group) => {
-              const monthWidth = group.weeks.length * (CELL_SIZE + CELL_GAP);
+      {/* Right Half: Streak (Centered) */}
+      <div className="split-half streak-half">
+        <div className="streak-section-header">
+          <span className="streak-title">Daily Streak</span>
+        </div>
+
+        <div className="streak-hero-display">
+          <span className="streak-number">{currentStreak}</span>
+          <span className="streak-unit">Day{currentStreak === 1 ? "" : "s"} Active</span>
+        </div>
+
+        <div className="streak-milestones-row">
+          <span className="milestones-label">Milestones:</span>
+          <div className="milestone-badges">
+            {[3, 10, 30].map((days) => {
+              const isUnlocked = maxStreak >= days;
               return (
-                <div key={`${group.year}-${group.monthIndex}`} className="heatmap-month-block">
-                  <div className="heatmap-month-title">{group.name}</div>
-                  <svg width={monthWidth} height={gridHeight} className="heatmap-svg">
-                    {group.weeks.map((week, wIdx) =>
-                      week.map((dayCell, dIdx) => {
-                        if (!dayCell) return null;
-                        const x = wIdx * (CELL_SIZE + CELL_GAP);
-                        const y = dIdx * (CELL_SIZE + CELL_GAP);
-                        return (
-                          <rect
-                            key={dayCell.dateStr}
-                            x={x}
-                            y={y}
-                            width={CELL_SIZE}
-                            height={CELL_SIZE}
-                            rx={2}
-                            ry={2}
-                            className={`heatmap-cell level-${dayCell.level}`}
-                            onMouseEnter={(e) => {
-                              const rect = e.currentTarget.getBoundingClientRect();
-                              setHoveredCell({
-                                cell: dayCell,
-                                x: rect.left + rect.width / 2,
-                                y: rect.top - 8,
-                              });
-                            }}
-                            onMouseLeave={() => setHoveredCell(null)}
-                          />
-                        );
-                      })
-                    )}
-                  </svg>
+                <div
+                  key={days}
+                  className={`streak-circle-badge ${isUnlocked ? "unlocked" : "locked"}`}
+                  title={isUnlocked ? `${days}-Day Streak Unlocked!` : `${days}-Day Streak (Locked)`}
+                >
+                  {days}
                 </div>
               );
             })}
