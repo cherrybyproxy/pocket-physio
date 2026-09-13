@@ -34,8 +34,6 @@ export default function App() {
         <nav className="top-nav">
           <div className="nav-brand">pocket physio</div>
           <div className="nav-links">
-            <NavLink to="/" end>session</NavLink>
-            <NavLink to="/history">history</NavLink>
             <button
               id="nav-shortcuts-btn"
               type="button"
@@ -44,6 +42,8 @@ export default function App() {
             >
               shortcuts
             </button>
+            <NavLink to="/" end>session</NavLink>
+            <NavLink to="/history">history</NavLink>
             {authed ? (
               <button
                 id="logout-btn"
