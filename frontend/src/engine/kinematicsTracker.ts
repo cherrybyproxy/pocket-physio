@@ -119,23 +119,23 @@ export class KinematicsTracker {
         ? data.leftKneeAngle
         : data.rightKneeAngle;
 
-    const minA = this.minAngle ?? 45;
-    const maxA = this.maxAngle ?? 160;
+    const minA = this.minAngle ?? 0;
+    const maxA = this.maxAngle ?? 120;
     const romRange = Math.max(10, maxA - minA);
     const romMidpoint = minA + romRange * 0.5;
 
     // target zones (within 5 degrees of calibrated boundaries, or going above and beyond)
-    const flexThreshold = minA + 5;
-    const extThreshold = maxA - 5;
+    const flexThreshold = maxA - 5;
+    const extThreshold = minA + 5;
 
-    const isInFlexionTarget = val <= flexThreshold;
-    const isInExtensionTarget = val >= extThreshold;
+    const isInFlexionTarget = val >= flexThreshold;
+    const isInExtensionTarget = val <= extThreshold;
 
     // unlock reps when returning past 50% ROM midpoint
-    if (val >= romMidpoint) {
-      this.flexLocked = false; // knee extended past midpoint -> unlocks next flexion rep
-    }
     if (val <= romMidpoint) {
+      this.flexLocked = false; // knee straightened past midpoint -> unlocks next flexion rep
+    }
+    if (val >= romMidpoint) {
       this.extLocked = false; // knee flexed past midpoint -> unlocks next extension rep
     }
 
@@ -145,7 +145,7 @@ export class KinematicsTracker {
       (this.maxAngle !== null && val > this.maxAngle);
     const angleColor = isViolated ? "#ff4444" : "#44ff44";
 
-    // 1. calculate angular velocity (°/sec)
+    // 1. calculate angular velocity (°/sec) (+ flexing, - extending)
     if (this.lastAngle !== null && this.lastTimestampMs !== null) {
       const dt = (timestampMs - this.lastTimestampMs) / 1000;
       if (dt > 0.005 && dt < 1.0) {
@@ -201,9 +201,9 @@ export class KinematicsTracker {
     let movementPhase: MovementPhase = "idle";
     if (isHolding) {
       movementPhase = "holding";
-    } else if (this.currentVelocity < -15) {
-      movementPhase = "flexing";
     } else if (this.currentVelocity > 15) {
+      movementPhase = "flexing";
+    } else if (this.currentVelocity < -15) {
       movementPhase = "extending";
     }
 

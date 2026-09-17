@@ -96,11 +96,11 @@ export default function SessionSummary({
             <span className="stat-value highlight">{Math.round(rom)}°</span>
           </div>
           <div className="summary-stat">
-            <span className="stat-label">Min Angle (Flexion)</span>
+            <span className="stat-label">Min Angle (Extension)</span>
             <span className="stat-value">{Math.round(minAngle)}°</span>
           </div>
           <div className="summary-stat">
-            <span className="stat-label">Max Angle (Extension)</span>
+            <span className="stat-label">Max Angle (Flexion)</span>
             <span className="stat-value">{Math.round(maxAngle)}°</span>
           </div>
           <div className="summary-stat">

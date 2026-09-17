@@ -138,8 +138,8 @@ export default function SessionHistory() {
                           <th>Date</th>
                           <th>Time</th>
                           <th>Injured Side</th>
-                          <th>Min Angle</th>
-                          <th>Max Angle</th>
+                          <th>Extension (Min)</th>
+                          <th>Flexion (Max)</th>
                           <th>ROM</th>
                           <th>Source</th>
                         </tr>

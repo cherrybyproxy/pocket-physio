@@ -47,7 +47,7 @@ export interface PoseState {
 type Vec3 = [number, number, number];
 type Vec2 = [number, number];
 
-// 3d euclidean joint angle from (x, y, z) coords
+// 3d euclidean joint angle converted to clinical goniometry notation (0° = full extension, 180° = full flexion)
 function getAngle3d(a: Vec3, b: Vec3, c: Vec3): number {
   const ba: Vec3 = [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
   const bc: Vec3 = [c[0] - b[0], c[1] - b[1], c[2] - b[2]];
@@ -55,10 +55,11 @@ function getAngle3d(a: Vec3, b: Vec3, c: Vec3): number {
   const magBa = Math.sqrt(ba[0] ** 2 + ba[1] ** 2 + ba[2] ** 2);
   const magBc = Math.sqrt(bc[0] ** 2 + bc[1] ** 2 + bc[2] ** 2);
   const cosine = Math.max(-1, Math.min(1, dot / (magBa * magBc || 1e-6)));
-  return (Math.acos(cosine) * 180) / Math.PI;
+  const internalAngle = (Math.acos(cosine) * 180) / Math.PI;
+  return Math.max(0, Math.min(180, 180 - internalAngle));
 }
 
-// 2d planar angle from (x, y) coords — ignores z
+// 2d planar angle converted to clinical goniometry notation (0° = full extension, 180° = full flexion)
 function getAngle2d(a: Vec3, b: Vec3, c: Vec3): number {
   const ba: Vec2 = [a[0] - b[0], a[1] - b[1]];
   const bc: Vec2 = [c[0] - b[0], c[1] - b[1]];
@@ -66,7 +67,8 @@ function getAngle2d(a: Vec3, b: Vec3, c: Vec3): number {
   const magBa = Math.sqrt(ba[0] ** 2 + ba[1] ** 2);
   const magBc = Math.sqrt(bc[0] ** 2 + bc[1] ** 2);
   const cosine = Math.max(-1, Math.min(1, dot / (magBa * magBc || 1e-6)));
-  return (Math.acos(cosine) * 180) / Math.PI;
+  const internalAngle = (Math.acos(cosine) * 180) / Math.PI;
+  return Math.max(0, Math.min(180, 180 - internalAngle));
 }
 
 // check visibility from normalized landmarks array (matching calibration.py _landmarks_visible)

@@ -193,8 +193,8 @@ export function drawTargetArcGauge(
   ctx.stroke();
 
   // calculate active arc fill proportional to joint angle
-  const minA = minAngle || 45;
-  const maxA = maxAngle || 165;
+  const minA = minAngle !== undefined ? minAngle : 0;
+  const maxA = maxAngle !== undefined ? maxAngle : 120;
   const romRange = Math.max(1, maxA - minA);
   const angleRatio = Math.max(0, Math.min(1, (currentAngle - minA) / romRange));
   const activeArcAngle = thighAngle - Math.PI * 0.6 + angleRatio * (Math.PI * 1.2);

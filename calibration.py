@@ -60,21 +60,23 @@ class poseengine:
         # true only if every supplied landmark meets VISIBILITY_THRESHOLD
         return all(lm.visibility >= VISIBILITY_THRESHOLD for lm in lms)
 
-    # 3D Euclidean joint angle from (x, y, z) coords for auto-calibration
+    # 3D Euclidean joint angle converted to clinical goniometry notation (0° = extension, 180° = flexion)
     def get_angle_3d(self, a, b, c):
         a, b, c = np.array(a), np.array(b), np.array(c)
         ba = a - b
         bc = c - b
-        cosine_angle = np.dot(ba, bc) / (np.linalg.norm(ba) * np.linalg.norm(bc))
-        return float(np.degrees(np.arccos(np.clip(cosine_angle, -1.0, 1.0))))
+        cosine_angle = np.dot(ba, bc) / (np.linalg.norm(ba) * np.linalg.norm(bc) + 1e-6)
+        internal = float(np.degrees(np.arccos(np.clip(cosine_angle, -1.0, 1.0))))
+        return float(np.clip(180.0 - internal, 0.0, 180.0))
 
-    # 2D planar angle from (x, y) coords for manual calibration
+    # 2D planar angle converted to clinical goniometry notation (0° = extension, 180° = flexion)
     def get_angle_2d(self, a, b, c):
         a, b, c = np.array(a[:2]), np.array(b[:2]), np.array(c[:2])
         ba = a - b
         bc = c - b
-        cosine_angle = np.dot(ba, bc) / (np.linalg.norm(ba) * np.linalg.norm(bc))
-        return float(np.degrees(np.arccos(np.clip(cosine_angle, -1.0, 1.0))))
+        cosine_angle = np.dot(ba, bc) / (np.linalg.norm(ba) * np.linalg.norm(bc) + 1e-6)
+        internal = float(np.degrees(np.arccos(np.clip(cosine_angle, -1.0, 1.0))))
+        return float(np.clip(180.0 - internal, 0.0, 180.0))
 
     def get_angle(self, a, b, c, is_frontal=False):
         if is_frontal:

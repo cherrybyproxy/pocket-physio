@@ -220,19 +220,19 @@ export default function CalibrationFlow() {
       sessionMaxLean.current = 0;
       setState("tracking_mode_select");
     } else if (state === "manual_min_l") {
-      if (!pose || !pose.leftVisible || pose.leftKneeAngle <= 10) return;
+      if (!pose || !pose.leftVisible || isNaN(pose.leftKneeAngle)) return;
       minL.current = pose.leftKneeAngle;
       setState("manual_max_l");
     } else if (state === "manual_max_l") {
-      if (!pose || !pose.leftVisible || pose.leftKneeAngle <= 10) return;
+      if (!pose || !pose.leftVisible || isNaN(pose.leftKneeAngle)) return;
       maxL.current = pose.leftKneeAngle;
       setState("manual_min_r");
     } else if (state === "manual_min_r") {
-      if (!pose || !pose.rightVisible || pose.rightKneeAngle <= 10) return;
+      if (!pose || !pose.rightVisible || isNaN(pose.rightKneeAngle)) return;
       minR.current = pose.rightKneeAngle;
       setState("manual_max_r");
     } else if (state === "manual_max_r") {
-      if (!pose || !pose.rightVisible || pose.rightKneeAngle <= 10) return;
+      if (!pose || !pose.rightVisible || isNaN(pose.rightKneeAngle)) return;
       maxR.current = pose.rightKneeAngle;
 
       if (
@@ -385,19 +385,15 @@ export default function CalibrationFlow() {
       }
 
       if (state === "auto_calibrate" && pose) {
-        if (pose.leftVisible) {
+        if (pose.leftVisible && !isNaN(pose.leftKneeAngle)) {
           const l = pose.leftKneeAngle;
-          if (l > 10) {
-            minL.current = minL.current === null ? l : Math.min(minL.current, l);
-            maxL.current = maxL.current === null ? l : Math.max(maxL.current, l);
-          }
+          minL.current = minL.current === null ? l : Math.min(minL.current, l);
+          maxL.current = maxL.current === null ? l : Math.max(maxL.current, l);
         }
-        if (pose.rightVisible) {
+        if (pose.rightVisible && !isNaN(pose.rightKneeAngle)) {
           const r = pose.rightKneeAngle;
-          if (r > 10) {
-            minR.current = minR.current === null ? r : Math.min(minR.current, r);
-            maxR.current = maxR.current === null ? r : Math.max(maxR.current, r);
-          }
+          minR.current = minR.current === null ? r : Math.min(minR.current, r);
+          maxR.current = maxR.current === null ? r : Math.max(maxR.current, r);
         }
       }
 
@@ -453,8 +449,8 @@ export default function CalibrationFlow() {
         );
         y += lineGap;
 
-        const leftValid = anglesValid && pose.leftVisible && pose.leftKneeAngle > 10;
-        const rightValid = anglesValid && pose.rightVisible && pose.rightKneeAngle > 10;
+        const leftValid = anglesValid && pose.leftVisible && !isNaN(pose.leftKneeAngle);
+        const rightValid = anglesValid && pose.rightVisible && !isNaN(pose.rightKneeAngle);
 
         const lStr = leftValid
           ? minL.current !== null
@@ -474,14 +470,14 @@ export default function CalibrationFlow() {
       } else if (state === "manual_min_l") {
         drawHudText(
           ctx,
-          "Bend left knee.",
+          "Straighten left leg (Extension ~0°).",
           24,
           y,
           "#ffffff",
           fontSize
         );
         y += lineGap;
-        const leftValid = anglesValid && pose.leftVisible && pose.leftKneeAngle > 10;
+        const leftValid = anglesValid && pose.leftVisible && !isNaN(pose.leftKneeAngle);
         const lStr = leftValid
           ? `LEFT: curr: ${Math.round(pose.leftKneeAngle)}°`
           : "LEFT: curr: --° | ensure leg is visible";
@@ -489,14 +485,14 @@ export default function CalibrationFlow() {
       } else if (state === "manual_max_l") {
         drawHudText(
           ctx,
-          "Straighten left leg.",
+          "Bend left knee as far as comfortable (Flexion).",
           24,
           y,
           "#ffffff",
           fontSize
         );
         y += lineGap;
-        const leftValid = anglesValid && pose.leftVisible && pose.leftKneeAngle > 10;
+        const leftValid = anglesValid && pose.leftVisible && !isNaN(pose.leftKneeAngle);
         const lStr = leftValid
           ? `LEFT: curr: ${Math.round(pose.leftKneeAngle)}°`
           : "LEFT: curr: --° | ensure leg is visible";
@@ -504,14 +500,14 @@ export default function CalibrationFlow() {
       } else if (state === "manual_min_r") {
         drawHudText(
           ctx,
-          "Bend right knee.",
+          "Straighten right leg (Extension ~0°).",
           24,
           y,
           "#ffffff",
           fontSize
         );
         y += lineGap;
-        const rightValid = anglesValid && pose.rightVisible && pose.rightKneeAngle > 10;
+        const rightValid = anglesValid && pose.rightVisible && !isNaN(pose.rightKneeAngle);
         const rStr = rightValid
           ? `RIGHT: curr: ${Math.round(pose.rightKneeAngle)}°`
           : "RIGHT: curr: --° | ensure leg is visible";
@@ -519,14 +515,14 @@ export default function CalibrationFlow() {
       } else if (state === "manual_max_r") {
         drawHudText(
           ctx,
-          "Straighten right leg.",
+          "Bend right knee as far as comfortable (Flexion).",
           24,
           y,
           "#ffffff",
           fontSize
         );
         y += lineGap;
-        const rightValid = anglesValid && pose.rightVisible && pose.rightKneeAngle > 10;
+        const rightValid = anglesValid && pose.rightVisible && !isNaN(pose.rightKneeAngle);
         const rStr = rightValid
           ? `RIGHT: curr: ${Math.round(pose.rightKneeAngle)}°`
           : "RIGHT: curr: --° | ensure leg is visible";
