@@ -485,7 +485,7 @@ export default function CalibrationFlow() {
       } else if (state === "manual_min_l") {
         drawHudText(
           ctx,
-          "Straighten left leg (Extension ~0°).",
+          "Straighten left leg.",
           leftX,
           y,
           "#ffffff",
@@ -515,7 +515,7 @@ export default function CalibrationFlow() {
       } else if (state === "manual_min_r") {
         drawHudText(
           ctx,
-          "Straighten right leg (Extension ~0°).",
+          "Straighten right leg.",
           rightX,
           y,
           "#ffffff",
