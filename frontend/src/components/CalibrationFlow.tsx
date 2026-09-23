@@ -418,11 +418,14 @@ export default function CalibrationFlow() {
       const lineGap = Math.round(fontSize * 1.35);
       let y = 20;
 
+      const leftX = 24;
+      const rightX = Math.round(_width / 2 + 24);
+
       if (state === "mode_select") {
         drawHudText(
           ctx,
           "Select Auto (Frontal) or Manual (Side-on)",
-          24,
+          leftX,
           y,
           "#ffffff",
           fontSize
@@ -433,7 +436,7 @@ export default function CalibrationFlow() {
         drawHudText(
           ctx,
           `Face camera frontal. Calibration begins in ${remaining}s`,
-          24,
+          leftX,
           y,
           "#ffaa00",
           fontSize
@@ -442,7 +445,7 @@ export default function CalibrationFlow() {
         drawHudText(
           ctx,
           "Move both legs through full ROM.",
-          24,
+          leftX,
           y,
           "#ffffff",
           fontSize
@@ -452,26 +455,38 @@ export default function CalibrationFlow() {
         const leftValid = anglesValid && pose.leftVisible && !isNaN(pose.leftKneeAngle);
         const rightValid = anglesValid && pose.rightVisible && !isNaN(pose.rightKneeAngle);
 
-        const lStr = leftValid
+        const lLine1 = leftValid
+          ? `LEFT: curr: ${Math.round(pose.leftKneeAngle)}°`
+          : "LEFT: curr: --°";
+        const lLine2 = leftValid
           ? minL.current !== null
-            ? `LEFT: curr: ${Math.round(pose.leftKneeAngle)}° | max: ${Math.round(maxL.current!)}° | min: ${Math.round(minL.current)}° | rom: ${Math.round(maxL.current! - minL.current)}°`
-            : `LEFT: curr: ${Math.round(pose.leftKneeAngle)}° | move through ROM`
-          : "LEFT: curr: --° | ensure leg is visible";
+            ? `rom: ${Math.round(maxL.current! - minL.current)}° (min ${Math.round(minL.current)}° | max ${Math.round(maxL.current!)}°)`
+            : "move through ROM"
+          : "ensure leg is visible";
 
-        const rStr = rightValid
+        const rLine1 = rightValid
+          ? `RIGHT: curr: ${Math.round(pose.rightKneeAngle)}°`
+          : "RIGHT: curr: --°";
+        const rLine2 = rightValid
           ? minR.current !== null
-            ? `RIGHT: curr: ${Math.round(pose.rightKneeAngle)}° | max: ${Math.round(maxR.current!)}° | min: ${Math.round(minR.current)}° | rom: ${Math.round(maxR.current! - minR.current)}°`
-            : `RIGHT: curr: ${Math.round(pose.rightKneeAngle)}° | move through ROM`
-          : "RIGHT: curr: --° | ensure leg is visible";
+            ? `rom: ${Math.round(maxR.current! - minR.current)}° (min ${Math.round(minR.current)}° | max ${Math.round(maxR.current!)}°)`
+            : "move through ROM"
+          : "ensure leg is visible";
 
-        drawHudText(ctx, lStr, 24, y, "#89429b", fontSize);
-        y += lineGap;
-        drawHudText(ctx, rStr, 24, y, "#89429b", fontSize);
+        // Left leg stats on left side of screen
+        drawHudText(ctx, lLine1, leftX, y, "#AC3834", fontSize);
+        drawHudText(ctx, lLine2, leftX, y + lineGap, "#AC3834", fontSize);
+
+        // Right leg stats on right side of screen (no divider line)
+        drawHudText(ctx, rLine1, rightX, y, "#4292C6", fontSize);
+        drawHudText(ctx, rLine2, rightX, y + lineGap, "#4292C6", fontSize);
+
+        y += lineGap * 2;
       } else if (state === "manual_min_l") {
         drawHudText(
           ctx,
           "Straighten left leg (Extension ~0°).",
-          24,
+          leftX,
           y,
           "#ffffff",
           fontSize
@@ -481,12 +496,12 @@ export default function CalibrationFlow() {
         const lStr = leftValid
           ? `LEFT: curr: ${Math.round(pose.leftKneeAngle)}°`
           : "LEFT: curr: --° | ensure leg is visible";
-        drawHudText(ctx, lStr, 24, y, "#AC3834", fontSize);
+        drawHudText(ctx, lStr, leftX, y, "#AC3834", fontSize);
       } else if (state === "manual_max_l") {
         drawHudText(
           ctx,
           "Bend left knee as far as comfortable (Flexion).",
-          24,
+          leftX,
           y,
           "#ffffff",
           fontSize
@@ -496,12 +511,12 @@ export default function CalibrationFlow() {
         const lStr = leftValid
           ? `LEFT: curr: ${Math.round(pose.leftKneeAngle)}°`
           : "LEFT: curr: --° | ensure leg is visible";
-        drawHudText(ctx, lStr, 24, y, "#AC3834", fontSize);
+        drawHudText(ctx, lStr, leftX, y, "#AC3834", fontSize);
       } else if (state === "manual_min_r") {
         drawHudText(
           ctx,
           "Straighten right leg (Extension ~0°).",
-          24,
+          rightX,
           y,
           "#ffffff",
           fontSize
@@ -511,12 +526,12 @@ export default function CalibrationFlow() {
         const rStr = rightValid
           ? `RIGHT: curr: ${Math.round(pose.rightKneeAngle)}°`
           : "RIGHT: curr: --° | ensure leg is visible";
-        drawHudText(ctx, rStr, 24, y, "#4292C6", fontSize);
+        drawHudText(ctx, rStr, rightX, y, "#4292C6", fontSize);
       } else if (state === "manual_max_r") {
         drawHudText(
           ctx,
           "Bend right knee as far as comfortable (Flexion).",
-          24,
+          rightX,
           y,
           "#ffffff",
           fontSize
@@ -526,7 +541,7 @@ export default function CalibrationFlow() {
         const rStr = rightValid
           ? `RIGHT: curr: ${Math.round(pose.rightKneeAngle)}°`
           : "RIGHT: curr: --° | ensure leg is visible";
-        drawHudText(ctx, rStr, 24, y, "#4292C6", fontSize);
+        drawHudText(ctx, rStr, rightX, y, "#4292C6", fontSize);
       } else if (state === "tracking_mode_select") {
         drawHudText(
           ctx,
@@ -556,6 +571,7 @@ export default function CalibrationFlow() {
         );
       } else if (state === "tracking") {
         const tracker = trackerRef.current;
+        const sideX = tracker.injuredSide === "left" ? leftX : rightX;
         const sideColor = tracker.injuredSide === "left" ? "#AC3834" : "#4292C6";
         const modeTitle = trackingMode === "watcher" ? "Movement Watcher" : "Movement Trainer";
         const modeColor = sideColor;
@@ -563,7 +579,7 @@ export default function CalibrationFlow() {
         drawHudText(
           ctx,
           modeTitle,
-          24,
+          sideX,
           y,
           modeColor,
           fontSize
@@ -593,7 +609,7 @@ export default function CalibrationFlow() {
             drawHudText(
               ctx,
               `curr: ${Math.round(fb.currentAngle)}° (${romPct}% of ROM) | min: ${Math.round(fb.minAngle)}° | max: ${Math.round(fb.maxAngle)}°`,
-              24,
+              sideX,
               y,
               angleColor,
               fontSize
@@ -602,13 +618,13 @@ export default function CalibrationFlow() {
             drawHudText(
               ctx,
               `load: ${fb.injuredLoad}% injured | ${fb.healthyLoad}% healthy`,
-              24,
+              sideX,
               y,
               "#ffdd44",
               fontSize
             );
             y += lineGap;
-            drawHudText(ctx, fb.leanText, 24, y, fb.leanColor, fontSize);
+            drawHudText(ctx, fb.leanText, sideX, y, fb.leanColor, fontSize);
           } else {
             hasTrainingDataRef.current = true;
             // Movement Trainer Mode: Target ROM Arc, Reps, Holds & Safety Disclaimer
@@ -661,7 +677,7 @@ export default function CalibrationFlow() {
                 drawHudText(
                   ctx,
                   `Planned Routine Complete! (${plannedTargetReps} Flexion + ${plannedTargetReps} Extension reps)`,
-                  24,
+                  sideX,
                   y,
                   sideColor,
                   fontSize
@@ -672,7 +688,7 @@ export default function CalibrationFlow() {
                   drawHudText(
                     ctx,
                     `curr: ${Math.round(fb.currentAngle)}° (${romPct}% ROM) | Flex Goal: ${fb.flexRepCount ?? 0} / ${plannedTargetReps} reps | hold: ${fb.holdTime.toFixed(1)}s / ${fb.targetHoldDuration.toFixed(1)}s`,
-                    24,
+                    sideX,
                     y,
                     sideColor,
                     fontSize
@@ -681,7 +697,7 @@ export default function CalibrationFlow() {
                   drawHudText(
                     ctx,
                     `Bend knee to flexion target & hold ${fb.targetHoldDuration}s. Return past 50% ROM to reset.`,
-                    24,
+                    sideX,
                     y,
                     "#ffffff",
                     Math.round(fontSize * 0.85)
@@ -691,7 +707,7 @@ export default function CalibrationFlow() {
                   drawHudText(
                     ctx,
                     `curr: ${Math.round(fb.currentAngle)}° (${romPct}% ROM) | Ext Goal: ${fb.extRepCount ?? 0} / ${plannedTargetReps} reps | hold: ${fb.holdTime.toFixed(1)}s / ${fb.targetHoldDuration.toFixed(1)}s`,
-                    24,
+                    sideX,
                     y,
                     sideColor,
                     fontSize
@@ -700,7 +716,7 @@ export default function CalibrationFlow() {
                   drawHudText(
                     ctx,
                     `Flexion Complete! Straighten leg to extension target & hold ${fb.targetHoldDuration}s.`,
-                    24,
+                    sideX,
                     y,
                     "#ffffff",
                     Math.round(fontSize * 0.85)
@@ -713,7 +729,7 @@ export default function CalibrationFlow() {
                 drawHudText(
                   ctx,
                   `curr: ${Math.round(fb.currentAngle)}° (${romPct}% ROM) | Flex: ${fb.flexRepCount ?? 0}/${plannedTargetReps} | Ext: ${fb.extRepCount ?? 0}/${plannedTargetReps} | hold: ${fb.holdTime.toFixed(1)}s / ${fb.targetHoldDuration.toFixed(1)}s`,
-                  24,
+                  sideX,
                   y,
                   sideColor,
                   fontSize
@@ -724,7 +740,7 @@ export default function CalibrationFlow() {
                   targetMove === "Flexion"
                     ? `Next: Bend knee to flexion target & hold ${fb.targetHoldDuration}s. Return past 50% ROM to reset.`
                     : `Next: Straighten leg to extension target & hold ${fb.targetHoldDuration}s. Return past 50% ROM to reset.`,
-                  24,
+                  sideX,
                   y,
                   "#ffffff",
                   Math.round(fontSize * 0.85)
@@ -737,7 +753,7 @@ export default function CalibrationFlow() {
               drawHudText(
                 ctx,
                 `curr: ${Math.round(fb.currentAngle)}° (${romPct}% ROM) | flex reps: ${fb.flexRepCount ?? 0} | ext reps: ${fb.extRepCount ?? 0} | hold: ${fb.holdTime.toFixed(1)}s / ${fb.targetHoldDuration.toFixed(1)}s`,
-                24,
+                sideX,
                 y,
                 sideColor,
                 fontSize
@@ -747,7 +763,7 @@ export default function CalibrationFlow() {
               drawHudText(
                 ctx,
                 "flex (flexion) = knee bend  |  ext (extension) = leg straighten (50% ROM reset)",
-                24,
+                sideX,
                 y,
                 "rgba(255, 255, 255, 0.75)",
                 Math.round(fontSize * 0.8)
@@ -759,7 +775,7 @@ export default function CalibrationFlow() {
             drawHudText(
               ctx,
               "Proceed safely. Sit or use support as recommended by your physical therapist.",
-              24,
+              sideX,
               y,
               "#ffaa00",
               Math.round(fontSize * 0.78)
@@ -769,7 +785,7 @@ export default function CalibrationFlow() {
           drawHudText(
             ctx,
             `Move ${tracker.injuredSide} leg completely into the frame.`,
-            24,
+            sideX,
             y,
             sideColor,
             fontSize
