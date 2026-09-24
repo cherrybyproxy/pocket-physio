@@ -47,6 +47,8 @@ export default function CalibrationFlow() {
   const [plannedDurationInput, setPlannedDurationInput] = useState<string>("1.0");
   const [plannedInputError, setPlannedInputError] = useState<string | null>(null);
 
+  const [showInfoPopup, setShowInfoPopup] = useState<boolean>(false);
+
   const [engineReady, setEngineReady] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -54,6 +56,22 @@ export default function CalibrationFlow() {
   const trackerRef = useRef(new KinematicsTracker("left"));
   const latestPoseRef = useRef<PoseState | null>(null);
   const completionTriggeredRef = useRef<boolean>(false);
+
+  // 5-second auto-dismiss for tracking info popup modal
+  useEffect(() => {
+    if (!showInfoPopup) return;
+    const timer = setTimeout(() => {
+      setShowInfoPopup(false);
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [showInfoPopup]);
+
+  // Open info popup whenever training mode is entered
+  useEffect(() => {
+    if (state === "tracking" && trackingMode === "trainer") {
+      setShowInfoPopup(true);
+    }
+  }, [state, trackingMode]);
 
   // 5-second auto-closing countdown for recalibration confirmation modal
   useEffect(() => {
@@ -257,6 +275,7 @@ export default function CalibrationFlow() {
       setState("tracking_mode_select");
     } else if (state === "tracking_mode_select") {
       setState("tracking");
+      setShowInfoPopup(true);
     } else if (state === "tracking") {
       return;
     }
@@ -307,9 +326,11 @@ export default function CalibrationFlow() {
         if (e.key === "w" || e.key === "W") {
           setTrackingMode("watcher");
           setState("tracking");
+          setShowInfoPopup(true);
         } else if (e.key === "t" || e.key === "T") {
           setTrackingMode("trainer");
           setState("tracking");
+          setShowInfoPopup(true);
         } else if (e.key === "s" || e.key === "S") {
           previousStateRef.current = "tracking_mode_select";
           setState("session_end");
@@ -784,27 +805,7 @@ export default function CalibrationFlow() {
                 fontSize
               );
               y += lineGap;
-
-              drawHudText(
-                ctx,
-                "flex (flexion) = knee bend  |  ext (extension) = leg straighten (50% ROM reset)",
-                sideX,
-                y,
-                "rgba(255, 255, 255, 0.75)",
-                Math.round(fontSize * 0.8)
-              );
-              y += lineGap;
             }
-
-            // Safety Disclaimer Banner
-            drawHudText(
-              ctx,
-              "Proceed safely. Sit or use support as recommended by your physical therapist.",
-              sideX,
-              y,
-              "#ffaa00",
-              Math.round(fontSize * 0.78)
-            );
           }
         } else {
           drawHudText(
@@ -898,6 +899,74 @@ export default function CalibrationFlow() {
 
   return (
     <div className="session-view-wrapper">
+      {showInfoPopup && (
+        <div className="modal-backdrop" onClick={() => setShowInfoPopup(false)}>
+          <div
+            className="glass-card planned-config-modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ position: "relative", textAlign: "left" }}
+          >
+            <button
+              onClick={() => setShowInfoPopup(false)}
+              style={{
+                position: "absolute",
+                top: "1.1rem",
+                right: "1.1rem",
+                background: "none",
+                border: "none",
+                color: "var(--text-secondary)",
+                fontSize: "1.2rem",
+                fontWeight: 600,
+                cursor: "pointer",
+                lineHeight: 1,
+                padding: "0.2rem 0.5rem",
+                borderRadius: "4px",
+              }}
+              aria-label="Close"
+            >
+              ✕
+            </button>
+
+            <h3
+              style={{
+                marginTop: 0,
+                marginBottom: "0.8rem",
+                fontSize: "1.15rem",
+                fontWeight: 600,
+                color: "var(--text-primary)",
+              }}
+            >
+              Movement Trainer Guide
+            </h3>
+
+            <div style={{ marginBottom: "1rem", fontSize: "0.88rem", color: "var(--text-secondary)", lineHeight: 1.5 }}>
+              <p style={{ margin: "0 0 0.5rem 0" }}>
+                <strong style={{ color: "var(--text-primary)" }}>flexion (flex)</strong> = knee bend
+              </p>
+              <p style={{ margin: "0 0 0.5rem 0" }}>
+                <strong style={{ color: "var(--text-primary)" }}>extension (ext)</strong> = leg straighten (50% ROM reset)
+              </p>
+              <p style={{ margin: 0 }}>
+                Return past 50% ROM to reset and count the next rep
+              </p>
+            </div>
+
+            <div
+              style={{
+                paddingTop: "0.8rem",
+                borderTop: "1px solid var(--border-subtle)",
+                fontSize: "0.85rem",
+                color: "#89429b",
+                fontWeight: 500,
+                lineHeight: 1.4,
+              }}
+            >
+              Proceed safely. Sit or use support as recommended by your physical therapist.
+            </div>
+          </div>
+        </div>
+      )}
+
       <CameraView
         engine={engineRef.current}
         isFrontal={isFrontal}
