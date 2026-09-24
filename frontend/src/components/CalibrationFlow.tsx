@@ -442,18 +442,27 @@ export default function CalibrationFlow() {
           fontSize
         );
       } else if (state === "auto_calibrate") {
+        const leftValid = anglesValid && pose.leftVisible && !isNaN(pose.leftKneeAngle);
+        const rightValid = anglesValid && pose.rightVisible && !isNaN(pose.rightKneeAngle);
+
+        let autoInstruction = "Move both legs through full ROM.";
+        if (!leftValid && !rightValid) {
+          autoInstruction += " Ensure legs are visible.";
+        } else if (!leftValid) {
+          autoInstruction += " Ensure left leg is visible.";
+        } else if (!rightValid) {
+          autoInstruction += " Ensure right leg is visible.";
+        }
+
         drawHudText(
           ctx,
-          "Move both legs through full ROM.",
+          autoInstruction,
           leftX,
           y,
           "#ffffff",
           fontSize
         );
         y += lineGap;
-
-        const leftValid = anglesValid && pose.leftVisible && !isNaN(pose.leftKneeAngle);
-        const rightValid = anglesValid && pose.rightVisible && !isNaN(pose.rightKneeAngle);
 
         const lLine1 = leftValid
           ? `LEFT: curr: ${Math.round(pose.leftKneeAngle)}°`
@@ -462,7 +471,7 @@ export default function CalibrationFlow() {
           ? minL.current !== null
             ? `rom: ${Math.round(maxL.current! - minL.current)}° (min ${Math.round(minL.current)}° | max ${Math.round(maxL.current!)}°)`
             : "move through ROM"
-          : "ensure leg is visible";
+          : "";
 
         const rLine1 = rightValid
           ? `RIGHT: curr: ${Math.round(pose.rightKneeAngle)}°`
@@ -471,77 +480,93 @@ export default function CalibrationFlow() {
           ? minR.current !== null
             ? `rom: ${Math.round(maxR.current! - minR.current)}° (min ${Math.round(minR.current)}° | max ${Math.round(maxR.current!)}°)`
             : "move through ROM"
-          : "ensure leg is visible";
+          : "";
 
         // Left leg stats on left side of screen
         drawHudText(ctx, lLine1, leftX, y, "#AC3834", fontSize);
-        drawHudText(ctx, lLine2, leftX, y + lineGap, "#AC3834", fontSize);
+        if (lLine2) {
+          drawHudText(ctx, lLine2, leftX, y + lineGap, "#AC3834", fontSize);
+        }
 
         // Right leg stats on right side of screen (no divider line)
         drawHudText(ctx, rLine1, rightX, y, "#4292C6", fontSize);
-        drawHudText(ctx, rLine2, rightX, y + lineGap, "#4292C6", fontSize);
+        if (rLine2) {
+          drawHudText(ctx, rLine2, rightX, y + lineGap, "#4292C6", fontSize);
+        }
 
         y += lineGap * 2;
       } else if (state === "manual_min_l") {
+        const leftValid = anglesValid && pose.leftVisible && !isNaN(pose.leftKneeAngle);
+        const instruction = leftValid
+          ? "Straighten left leg."
+          : "Straighten left leg. Ensure leg is visible.";
         drawHudText(
           ctx,
-          "Straighten left leg.",
+          instruction,
           leftX,
           y,
           "#ffffff",
           fontSize
         );
         y += lineGap;
-        const leftValid = anglesValid && pose.leftVisible && !isNaN(pose.leftKneeAngle);
         const lStr = leftValid
           ? `LEFT: curr: ${Math.round(pose.leftKneeAngle)}°`
-          : "LEFT: curr: --° | ensure leg is visible";
+          : "LEFT: curr: --°";
         drawHudText(ctx, lStr, leftX, y, "#AC3834", fontSize);
       } else if (state === "manual_max_l") {
+        const leftValid = anglesValid && pose.leftVisible && !isNaN(pose.leftKneeAngle);
+        const instruction = leftValid
+          ? "Bend left knee."
+          : "Bend left knee. Ensure leg is visible.";
         drawHudText(
           ctx,
-          "Bend left knee as far as comfortable (Flexion).",
+          instruction,
           leftX,
           y,
           "#ffffff",
           fontSize
         );
         y += lineGap;
-        const leftValid = anglesValid && pose.leftVisible && !isNaN(pose.leftKneeAngle);
         const lStr = leftValid
           ? `LEFT: curr: ${Math.round(pose.leftKneeAngle)}°`
-          : "LEFT: curr: --° | ensure leg is visible";
+          : "LEFT: curr: --°";
         drawHudText(ctx, lStr, leftX, y, "#AC3834", fontSize);
       } else if (state === "manual_min_r") {
+        const rightValid = anglesValid && pose.rightVisible && !isNaN(pose.rightKneeAngle);
+        const instruction = rightValid
+          ? "Straighten right leg."
+          : "Straighten right leg. Ensure leg is visible.";
         drawHudText(
           ctx,
-          "Straighten right leg.",
-          rightX,
+          instruction,
+          leftX,
           y,
           "#ffffff",
           fontSize
         );
         y += lineGap;
-        const rightValid = anglesValid && pose.rightVisible && !isNaN(pose.rightKneeAngle);
         const rStr = rightValid
           ? `RIGHT: curr: ${Math.round(pose.rightKneeAngle)}°`
-          : "RIGHT: curr: --° | ensure leg is visible";
-        drawHudText(ctx, rStr, rightX, y, "#4292C6", fontSize);
+          : "RIGHT: curr: --°";
+        drawHudText(ctx, rStr, leftX, y, "#4292C6", fontSize);
       } else if (state === "manual_max_r") {
+        const rightValid = anglesValid && pose.rightVisible && !isNaN(pose.rightKneeAngle);
+        const instruction = rightValid
+          ? "Bend right knee."
+          : "Bend right knee. Ensure leg is visible.";
         drawHudText(
           ctx,
-          "Bend right knee as far as comfortable (Flexion).",
-          rightX,
+          instruction,
+          leftX,
           y,
           "#ffffff",
           fontSize
         );
         y += lineGap;
-        const rightValid = anglesValid && pose.rightVisible && !isNaN(pose.rightKneeAngle);
         const rStr = rightValid
           ? `RIGHT: curr: ${Math.round(pose.rightKneeAngle)}°`
-          : "RIGHT: curr: --° | ensure leg is visible";
-        drawHudText(ctx, rStr, rightX, y, "#4292C6", fontSize);
+          : "RIGHT: curr: --°";
+        drawHudText(ctx, rStr, leftX, y, "#4292C6", fontSize);
       } else if (state === "tracking_mode_select") {
         drawHudText(
           ctx,
@@ -571,7 +596,7 @@ export default function CalibrationFlow() {
         );
       } else if (state === "tracking") {
         const tracker = trackerRef.current;
-        const sideX = tracker.injuredSide === "left" ? leftX : rightX;
+        const sideX = leftX;
         const sideColor = tracker.injuredSide === "left" ? "#AC3834" : "#4292C6";
         const modeTitle = trackingMode === "watcher" ? "Movement Watcher" : "Movement Trainer";
         const modeColor = sideColor;
