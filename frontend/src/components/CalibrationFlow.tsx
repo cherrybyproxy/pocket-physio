@@ -599,7 +599,7 @@ export default function CalibrationFlow() {
         const sideX = leftX;
         const sideColor = tracker.injuredSide === "left" ? "#AC3834" : "#4292C6";
         const modeTitle = trackingMode === "watcher" ? "Movement Watcher" : "Movement Trainer";
-        const modeColor = sideColor;
+        const modeColor = "#ffffff";
 
         drawHudText(
           ctx,
@@ -630,7 +630,7 @@ export default function CalibrationFlow() {
             sessionMaxLoad.current = Math.max(sessionMaxLoad.current, Math.round(fb.injuredLoad));
 
             // Movement Watcher Mode: Posture safety, trunk lean, weight offloading
-            const angleColor = fb.isViolated ? "#ff4444" : sideColor;
+            const angleColor = fb.isViolated ? "#89429b" : sideColor;
             drawHudText(
               ctx,
               `curr: ${Math.round(fb.currentAngle)}° (${romPct}% of ROM) | min: ${Math.round(fb.minAngle)}° | max: ${Math.round(fb.maxAngle)}°`,
@@ -812,7 +812,7 @@ export default function CalibrationFlow() {
             `Move ${tracker.injuredSide} leg completely into the frame.`,
             sideX,
             y,
-            sideColor,
+            "#ffffff",
             fontSize
           );
         }

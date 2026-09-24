@@ -143,7 +143,7 @@ export class KinematicsTracker {
     const isViolated =
       (this.minAngle !== null && val < this.minAngle) ||
       (this.maxAngle !== null && val > this.maxAngle);
-    const angleColor = isViolated ? "#ff4444" : "#44ff44";
+    const angleColor = isViolated ? "#d21404" : "#028a0f";
 
     // 1. calculate angular velocity (°/sec) (+ flexing, - extending)
     if (this.lastAngle !== null && this.lastTimestampMs !== null) {
@@ -217,18 +217,18 @@ export class KinematicsTracker {
     let leanText: string;
 
     if (data.leanDirection === "injured" && leanDeg >= 2) {
-      leanColor = "#ff4444";
+      leanColor = "#d21404";
       leanText = `trunk lean: ${leanDeg}° toward injured (alert: overload)`;
     } else if (data.leanDirection === "healthy") {
       if (leanDeg > 10) {
-        leanColor = "#ff4444";
+        leanColor = "#d21404";
         leanText = `trunk lean: ${leanDeg}° toward healthy (>10° back strain risk!)`;
       } else {
         leanColor = "#ffdd44";
         leanText = `trunk lean: ${leanDeg}° toward healthy (mild offload)`;
       }
     } else {
-      leanColor = "#44ff44";
+      leanColor = "#028a0f";
       leanText = `trunk lean: ${leanDeg}° (centered/upright)`;
     }
 
