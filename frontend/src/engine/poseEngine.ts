@@ -21,8 +21,8 @@ const LM = {
   RIGHT_ANKLE: 28,
 } as const;
 
-// min per-landmark confidence to trust a frame's angle data (matching calibration.py)
-const VISIBILITY_THRESHOLD = 0.5;
+// min per-landmark confidence to trust a frame's angle data (matching PoseScanner.tsx)
+const VISIBILITY_THRESHOLD = 0.6;
 
 export interface PoseState {
   targetKneeAngle: number;
@@ -71,14 +71,14 @@ function getAngle2d(a: Vec3, b: Vec3, c: Vec3): number {
   return Math.max(0, Math.min(180, 180 - internalAngle));
 }
 
-// check visibility from normalized landmarks array (matching calibration.py _landmarks_visible)
+// check visibility from normalized landmarks array (matching PoseScanner.tsx)
 function landmarksVisible(
   ...lms: (NormalizedLandmark | undefined)[]
 ): boolean {
   return lms.every((lm) => {
     if (!lm) return false;
-    // if visibility is undefined or not provided by model, assume visible
-    const v = lm.visibility !== undefined ? lm.visibility : 1.0;
+    // if visibility is undefined or not provided by model, treat as 0 (not visible)
+    const v = lm.visibility !== undefined ? lm.visibility : 0;
     return v >= VISIBILITY_THRESHOLD;
   });
 }

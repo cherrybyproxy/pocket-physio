@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { PoseEngine, type PoseState } from "../engine/poseEngine";
 import { drawSkeleton } from "../engine/drawUtils";
+import { checkConfidenceAndTriggerFallback, type FallbackTriggerEvent } from "./PoseScanner";
 
 interface CameraViewProps {
   engine: PoseEngine;
@@ -38,6 +39,7 @@ export default function CameraView({
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [fallbackStatus, setFallbackStatus] = useState<FallbackTriggerEvent | null>(null);
 
   // keep callback refs fresh so the continuous RAF loop never drops frames
   const onFrameRef = useRef(onFrame);
@@ -72,7 +74,7 @@ export default function CameraView({
 
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
-          videoRef.current.play().catch(() => {});
+          videoRef.current.play().catch(() => { });
         }
       } catch {
         setCameraError("Camera access denied or unavailable. Please enable permissions.");
@@ -124,6 +126,22 @@ export default function CameraView({
 
           // process frame through mediapipe wasm with deterministic isFrontal mode
           const state = engineRef.current.processFrame(video, now, isFrontalRef.current);
+
+          // evaluate confidence trigger every frame for full kinetic leg chains (Hip, Knee, Ankle)
+          if (state?.normalizedLandmarks) {
+            const targetJoints =
+              filterSideRef.current === "left"
+                ? [23, 25, 27]
+                : filterSideRef.current === "right"
+                  ? [24, 26, 28]
+                  : [23, 24, 25, 26, 27, 28];
+
+            checkConfidenceAndTriggerFallback(state.normalizedLandmarks, targetJoints, video).then((evt) => {
+              setFallbackStatus(evt);
+            });
+          } else {
+            setFallbackStatus({ triggered: false, joint: "full leg chain", confidence: 0 });
+          }
 
           // clear canvas frame
           ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -183,6 +201,7 @@ export default function CameraView({
       role="button"
       tabIndex={isActive ? 0 : -1}
       title={isActive ? "Click to lock calibration or advance step" : "Pocket Physio Camera"}
+      style={{ position: "relative" }}
     >
       <video
         ref={videoRef}
@@ -193,6 +212,62 @@ export default function CameraView({
       <canvas
         ref={canvasRef}
       />
+      {fallbackStatus && (
+        <div
+          className="fallback-hud-badge"
+          style={{
+            position: "absolute",
+            top: "14px",
+            right: "14px",
+            padding: "5px 11px",
+            borderRadius: "20px",
+            fontSize: "0.74rem",
+            fontWeight: 500,
+            letterSpacing: "0.02em",
+            fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+            display: "flex",
+            alignItems: "center",
+            gap: "7px",
+            backdropFilter: "blur(12px)",
+            WebkitBackdropFilter: "blur(12px)",
+            zIndex: 10,
+            border: fallbackStatus.triggered
+              ? "1px solid rgba(239, 68, 68, 0.45)"
+              : "1px solid rgba(255, 255, 255, 0.12)",
+            background: fallbackStatus.triggered
+              ? "rgba(24, 15, 20, 0.82)"
+              : "rgba(15, 23, 42, 0.72)",
+            color: fallbackStatus.triggered ? "#fca5a5" : "rgba(255, 255, 255, 0.85)",
+            boxShadow: fallbackStatus.triggered
+              ? "0 4px 14px rgba(239, 68, 68, 0.25)"
+              : "0 4px 12px rgba(0, 0, 0, 0.2)",
+            pointerEvents: "none",
+            transition: "all 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
+          }}
+        >
+          <span
+            style={{
+              width: "6px",
+              height: "6px",
+              borderRadius: "50%",
+              backgroundColor: fallbackStatus.triggered ? "#ef4444" : "#22c55e",
+              boxShadow: fallbackStatus.triggered
+                ? "0 0 6px #ef4444"
+                : "0 0 4px #22c55e",
+              flexShrink: 0,
+            }}
+          />
+          {fallbackStatus.triggered ? (
+            <span>
+              SLAM FALLBACK ({fallbackStatus.joint}: {(fallbackStatus.confidence * 100).toFixed(0)}%)
+            </span>
+          ) : (
+            <span>
+              MEDIAPIPE ({(fallbackStatus.confidence * 100).toFixed(0)}%)
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
