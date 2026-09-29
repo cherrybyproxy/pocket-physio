@@ -32,9 +32,9 @@ export async function checkConfidenceAndTriggerFallback(
         return { triggered: false, joint: defaultJointName, confidence: 0 };
     }
 
-    // 2. Guard against missing landmarks array
+    // 2. Guard against missing landmarks array (no pose detected in frame)
     if (!landmarks || landmarks.length === 0) {
-        return { triggered: false, joint: defaultJointName, confidence: 0 };
+        return { triggered: true, joint: "both legs", confidence: 0 };
     }
 
     const LEFT_LEG_JOINTS = new Set([23, 25, 27]);

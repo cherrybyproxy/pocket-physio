@@ -140,7 +140,7 @@ export default function CameraView({
               setFallbackStatus(evt);
             });
           } else {
-            setFallbackStatus({ triggered: false, joint: "full leg chain", confidence: 0 });
+            setFallbackStatus({ triggered: true, joint: "both legs", confidence: 0 });
           }
 
           // clear canvas frame
