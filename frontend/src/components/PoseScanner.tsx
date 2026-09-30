@@ -1,7 +1,6 @@
 import type { NormalizedLandmark } from "@mediapipe/tasks-vision";
 
 const VISIBILITY_THRESHOLD = 0.6;
-const KEY_JOINTS = { LEFT_KNEE: 25, RIGHT_KNEE: 26, LEFT_ANKLE: 27, RIGHT_ANKLE: 28 };
 
 export interface FallbackTriggerEvent {
     triggered: boolean;
