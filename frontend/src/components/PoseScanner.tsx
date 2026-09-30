@@ -74,8 +74,8 @@ export async function checkConfidenceAndTriggerFallback(
             hasLeftFailure && hasRightFailure
                 ? "both legs"
                 : hasLeftFailure
-                ? "left leg"
-                : "right leg";
+                    ? "left leg"
+                    : "right leg";
 
         try {
             // create zero-copy transferable frame from video DOM element
