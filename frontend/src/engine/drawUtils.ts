@@ -234,4 +234,57 @@ export function drawTargetArcGauge(
   ctx.restore();
 }
 
+// SLAM optical flow tracking crosshair matching tracked side color
+export function drawSlamAnchorCrosshair(
+  ctx: CanvasRenderingContext2D,
+  point: { x: number; y: number },
+  width: number,
+  height: number,
+  side?: "left" | "right" | string
+): void {
+  const px = point.x * width;
+  const py = point.y * height;
+  const size = 18;
+
+  const isRight = side === "right" || side?.includes("right");
+  const color = isRight ? "#4292C6" : "#AC3834";
+  const strokeColor = isRight ? "rgba(66, 146, 198, 0.85)" : "rgba(172, 56, 52, 0.85)";
+
+  ctx.save();
+  ctx.translate(width, 0);
+  ctx.scale(-1, 1);
+
+  // Outer glowing ring
+  ctx.beginPath();
+  ctx.arc(px, py, size, 0, 2 * Math.PI);
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = strokeColor;
+  ctx.setLineDash([4, 4]);
+  ctx.stroke();
+
+  // Inner target circle
+  ctx.beginPath();
+  ctx.arc(px, py, 4, 0, 2 * Math.PI);
+  ctx.fillStyle = color;
+  ctx.fill();
+
+  // Crosshair ticks
+  ctx.setLineDash([]);
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = color;
+
+  ctx.beginPath();
+  ctx.moveTo(px - size - 4, py);
+  ctx.lineTo(px - size + 4, py);
+  ctx.moveTo(px + size - 4, py);
+  ctx.lineTo(px + size + 4, py);
+  ctx.moveTo(px, py - size - 4);
+  ctx.lineTo(px, py - size + 4);
+  ctx.moveTo(px, py + size - 4);
+  ctx.lineTo(px, py + size + 4);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
 

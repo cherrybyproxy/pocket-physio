@@ -77,8 +77,8 @@ function landmarksVisible(
 ): boolean {
   return lms.every((lm) => {
     if (!lm) return false;
-    // if visibility is undefined or not provided by model, treat as 0 (not visible)
-    const v = lm.visibility !== undefined ? lm.visibility : 0;
+    // if visibility is undefined, treat as 1.0 (visible)
+    const v = lm.visibility !== undefined ? lm.visibility : 1.0;
     return v >= VISIBILITY_THRESHOLD;
   });
 }

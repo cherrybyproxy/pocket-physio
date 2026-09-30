@@ -2,8 +2,9 @@
 // the skeleton overlay + hud on an html5 canvas stacked on top of the video.
 
 import { useEffect, useRef, useState } from "react";
-import { PoseEngine, type PoseState } from "../engine/poseEngine";
-import { drawSkeleton } from "../engine/drawUtils";
+import type { PoseEngine, PoseState } from "../engine/poseEngine";
+import { useOpticalFlowTracker } from "../hooks/useOpticalFlowTracker";
+import { drawSkeleton, drawSlamAnchorCrosshair } from "../engine/drawUtils";
 import { checkConfidenceAndTriggerFallback, type FallbackTriggerEvent } from "./PoseScanner";
 
 interface CameraViewProps {
@@ -40,6 +41,13 @@ export default function CameraView({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [fallbackStatus, setFallbackStatus] = useState<FallbackTriggerEvent | null>(null);
+
+  const slamTracker = useOpticalFlowTracker();
+  const slamTrackerRef = useRef(slamTracker);
+  slamTrackerRef.current = slamTracker;
+
+  const lastKnownJointsRef = useRef<Record<number, { x: number; y: number }>>({});
+  const inFlightRef = useRef(false);
 
   // keep callback refs fresh so the continuous RAF loop never drops frames
   const onFrameRef = useRef(onFrame);
@@ -127,8 +135,14 @@ export default function CameraView({
           // process frame through mediapipe wasm with deterministic isFrontal mode
           const state = engineRef.current.processFrame(video, now, isFrontalRef.current);
 
-          // evaluate confidence trigger every frame for full kinetic leg chains (Hip, Knee, Ankle)
-          if (state?.normalizedLandmarks) {
+          // update last-known valid high-confidence landmark positions
+          if (state?.normalizedLandmarks && !inFlightRef.current) {
+            state.normalizedLandmarks.forEach((lm, idx) => {
+              if (lm && (lm.visibility === undefined || lm.visibility >= 0.6)) {
+                lastKnownJointsRef.current[idx] = { x: lm.x, y: lm.y };
+              }
+            });
+
             const targetJoints =
               filterSideRef.current === "left"
                 ? [23, 25, 27]
@@ -136,11 +150,62 @@ export default function CameraView({
                   ? [24, 26, 28]
                   : [23, 24, 25, 26, 27, 28];
 
-            checkConfidenceAndTriggerFallback(state.normalizedLandmarks, targetJoints, video).then((evt) => {
-              setFallbackStatus(evt);
+            inFlightRef.current = true;
+            checkConfidenceAndTriggerFallback(state.normalizedLandmarks, targetJoints, video)
+              .then((evt) => {
+                setFallbackStatus((prev) => {
+                  if (
+                    prev?.triggered === evt.triggered &&
+                    prev?.joint === evt.joint &&
+                    Math.abs((prev?.confidence ?? 0) - evt.confidence) < 0.05
+                  ) {
+                    return prev;
+                  }
+                  return evt;
+                });
+
+                if (evt.triggered && evt.imageBitmap) {
+                  if (!slamTrackerRef.current.isTrackingRef.current) {
+                    const sidesToTrack = evt.sidesToTrack && evt.sidesToTrack.length > 0
+                      ? evt.sidesToTrack
+                      : ["left" as const, "right" as const];
+
+                    const anchors: { left?: { x: number; y: number }; right?: { x: number; y: number } } = {};
+                    const limbs: { left?: { x: number; y: number }[]; right?: { x: number; y: number }[] } = {};
+
+                    const lm = lastKnownJointsRef.current;
+
+                    for (const side of sidesToTrack) {
+                      const kneeIdx = side === "right" ? 26 : 25;
+                      const [h, a] = side === "right" ? [24, 28] : [23, 27];
+                      const anchorPoint =
+                        lm[kneeIdx] ??
+                        state.normalizedLandmarks[kneeIdx] ??
+                        { x: side === "right" ? 0.6 : 0.4, y: 0.5 };
+                      anchors[side] = anchorPoint;
+                      limbs[side] = [lm[h], anchorPoint, lm[a]].filter(
+                        (p): p is { x: number; y: number } => Boolean(p)
+                      );
+                    }
+
+                    slamTrackerRef.current.initAnchor(evt.imageBitmap, anchors, limbs);
+                  } else {
+                    slamTrackerRef.current.trackFrame(evt.imageBitmap);
+                  }
+                } else if (!evt.triggered && slamTrackerRef.current.isTrackingRef.current) {
+                  slamTrackerRef.current.resetTracker();
+                }
+              })
+              .finally(() => {
+                inFlightRef.current = false;
+              });
+          } else if (!state?.normalizedLandmarks) {
+            setFallbackStatus((prev) => {
+              if (prev?.triggered === true && prev.joint === "both legs" && prev.confidence === 0) {
+                return prev;
+              }
+              return { triggered: true, joint: "both legs", sidesToTrack: ["left", "right"], confidence: 0 };
             });
-          } else {
-            setFallbackStatus({ triggered: true, joint: "both legs", confidence: 0 });
           }
 
           // clear canvas frame
@@ -154,6 +219,17 @@ export default function CameraView({
             drawSkeleton(ctx, state.normalizedLandmarks, canvas.width, canvas.height, filterSideRef.current);
           }
           ctx.restore();
+
+          // draw SLAM optical flow target crosshairs matching side colors when tracking
+          if (slamTrackerRef.current.isTracking && slamTrackerRef.current.trackedPoints) {
+            const pts = slamTrackerRef.current.trackedPoints;
+            if (pts.left) {
+              drawSlamAnchorCrosshair(ctx, pts.left, canvas.width, canvas.height, "left");
+            }
+            if (pts.right) {
+              drawSlamAnchorCrosshair(ctx, pts.right, canvas.width, canvas.height, "right");
+            }
+          }
 
           // draw HUD text un-mirrored so it reads left-to-right
           if (renderHudRef.current) {
