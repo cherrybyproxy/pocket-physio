@@ -173,17 +173,39 @@ export default function CameraView({
                     const anchors: { left?: { x: number; y: number }; right?: { x: number; y: number } } = {};
                     const limbs: { left?: { x: number; y: number }[]; right?: { x: number; y: number }[] } = {};
 
-                    const lm = lastKnownJointsRef.current;
+                    const lms = state.normalizedLandmarks;
+                    const lKnee = lms[25] ?? lastKnownJointsRef.current[25];
+                    const rKnee = lms[26] ?? lastKnownJointsRef.current[26];
 
                     for (const side of sidesToTrack) {
                       const kneeIdx = side === "right" ? 26 : 25;
-                      const [h, a] = side === "right" ? [24, 28] : [23, 27];
-                      const anchorPoint =
-                        lm[kneeIdx] ??
-                        state.normalizedLandmarks[kneeIdx] ??
-                        { x: side === "right" ? 0.6 : 0.4, y: 0.5 };
+                      const hipIdx = side === "right" ? 24 : 23;
+                      const ankleIdx = side === "right" ? 28 : 27;
+
+                      let anchorPoint: { x: number; y: number };
+
+                      if (lms[kneeIdx]) {
+                        anchorPoint = { x: lms[kneeIdx].x, y: lms[kneeIdx].y };
+                      } else if (lastKnownJointsRef.current[kneeIdx]) {
+                        anchorPoint = { ...lastKnownJointsRef.current[kneeIdx] };
+                      } else if (lms[hipIdx]) {
+                        anchorPoint = { x: lms[hipIdx].x, y: Math.min(0.85, lms[hipIdx].y + 0.25) };
+                      } else {
+                        anchorPoint = { x: side === "left" ? 0.65 : 0.35, y: 0.5 };
+                      }
+
+                      // Anatomical Lockdown: Left knee x MUST be > Right knee x in un-mirrored video space
+                      if (side === "left" && rKnee && anchorPoint.x < rKnee.x) {
+                        anchorPoint.x = Math.max(0.55, rKnee.x + 0.15);
+                      }
+                      if (side === "right" && lKnee && anchorPoint.x > lKnee.x) {
+                        anchorPoint.x = Math.min(0.45, lKnee.x - 0.15);
+                      }
+
                       anchors[side] = anchorPoint;
-                      limbs[side] = [lm[h], anchorPoint, lm[a]].filter(
+                      const hPt = lms[hipIdx] ?? lastKnownJointsRef.current[hipIdx];
+                      const aPt = lms[ankleIdx] ?? lastKnownJointsRef.current[ankleIdx];
+                      limbs[side] = [hPt, anchorPoint, aPt].filter(
                         (p): p is { x: number; y: number } => Boolean(p)
                       );
                     }

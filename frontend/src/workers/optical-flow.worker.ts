@@ -1,4 +1,4 @@
-// Web Worker for Dual Optical Flow & Appearance-Based Template Matching via OpenCV.js WebAssembly
+// Web Worker for Dual Optical Flow & Multi-Scale Pyramid Template Matching via OpenCV.js WebAssembly
 
 declare const cv: any;
 declare function importScripts(...urls: string[]): void;
@@ -133,7 +133,7 @@ self.onmessage = async (event: MessageEvent<any>) => {
                     const anchor = anchors[side]!;
                     const limb = limbs?.[side];
 
-                    // extract visual appearance template patch of knee ROI (44x44 px)
+                    // 1. Extract visual appearance template patch of knee ROI (44x44 px)
                     const patchSize = 44;
                     const halfPatch = patchSize / 2;
                     const cropX = Math.max(0, Math.min(width - patchSize, Math.round(anchor.x * width - halfPatch)));
@@ -141,7 +141,7 @@ self.onmessage = async (event: MessageEvent<any>) => {
                     const rect = new cv.Rect(cropX, cropY, patchSize, patchSize);
                     const templateMat = grayMat.roi(rect).clone();
 
-                    // extract Shi-Tomasi feature points along limb
+                    // 2. Extract Shi-Tomasi feature points along limb
                     const mask = cv.Mat.zeros(height, width, cv.CV_8UC1);
                     const pts = limb && limb.length > 0 ? limb : [anchor];
 
@@ -231,37 +231,82 @@ self.onmessage = async (event: MessageEvent<any>) => {
                 for (const side of sides) {
                     const trk = trackers[side]!;
 
-                    // appearance-based template matching
+                    // --- STEP 1: Multi-Scale Pyramid Appearance Matching ---
                     let templateMatchPos: { x: number; y: number } | null = null;
                     let templateScore = 0;
 
                     if (trk.templateMat) {
-                        const searchSize = 140; // 140x140 search window around previous knee center
+                        const searchSize = 200; // 200x200 search window around previous knee center
                         const halfSearch = searchSize / 2;
-                        const halfPatch = trk.patchSize / 2;
 
                         const searchX = Math.max(0, Math.min(width - searchSize, Math.round(trk.currentAnchor.x * width - halfSearch)));
                         const searchY = Math.max(0, Math.min(height - searchSize, Math.round(trk.currentAnchor.y * height - halfSearch)));
                         const searchRect = new cv.Rect(searchX, searchY, searchSize, searchSize);
                         const searchMat = currGrayMat.roi(searchRect);
 
-                        const resMat = new cv.Mat();
-                        cv.matchTemplate(searchMat, trk.templateMat, resMat, cv.TM_CCOEFF_NORMED);
-                        const mm = cv.minMaxLoc(resMat);
+                        // Test 3 scales (0.85x, 1.0x, 1.15x) to handle Z-depth foreshortening in squats
+                        const scales = [0.85, 1.0, 1.15];
+                        let bestVal = -1;
+                        let bestLoc = { x: 0, y: 0 };
+                        let bestScaleSize = trk.patchSize;
 
-                        templateScore = mm.maxVal;
-                        if (templateScore >= 0.45) {
-                            templateMatchPos = {
-                                x: (searchX + mm.maxLoc.x + halfPatch) / width,
-                                y: (searchY + mm.maxLoc.y + halfPatch) / height,
-                            };
+                        for (const s of scales) {
+                            const scaledW = Math.round(trk.patchSize * s);
+                            const scaledH = Math.round(trk.patchSize * s);
+                            if (scaledW > searchSize || scaledH > searchSize || scaledW < 10 || scaledH < 10) continue;
+
+                            const scaledTemplate = new cv.Mat();
+                            cv.resize(trk.templateMat, scaledTemplate, new cv.Size(scaledW, scaledH), 0, 0, cv.INTER_LINEAR);
+
+                            const resMat = new cv.Mat();
+                            cv.matchTemplate(searchMat, scaledTemplate, resMat, cv.TM_CCOEFF_NORMED);
+                            const mm = cv.minMaxLoc(resMat);
+
+                            if (mm.maxVal > bestVal) {
+                                bestVal = mm.maxVal;
+                                bestLoc = mm.maxLoc;
+                                bestScaleSize = scaledW;
+                            }
+
+                            scaledTemplate.delete();
+                            resMat.delete();
                         }
 
                         searchMat.delete();
-                        resMat.delete();
+
+                        templateScore = bestVal;
+                        if (templateScore >= 0.35) {
+                            const halfScaled = bestScaleSize / 2;
+                            const matchPxX = searchX + bestLoc.x + halfScaled;
+                            const matchPxY = searchY + bestLoc.y + halfScaled;
+                            const candX = matchPxX / width;
+                            const candY = matchPxY / height;
+
+                            // Spatial Cross-Leg Boundary Guard: Left knee x > Right knee x in un-mirrored video space
+                            const otherSide = side === "left" ? "right" : "left";
+                            const otherTrk = trackers[otherSide];
+                            const isCrossed =
+                                (side === "left" && otherTrk && candX < otherTrk.currentAnchor.x - 0.05) ||
+                                (side === "right" && otherTrk && candX > otherTrk.currentAnchor.x + 0.05);
+
+                            if (!isCrossed) {
+                                templateMatchPos = { x: candX, y: candY };
+                            }
+
+                            // Adaptive Template Update: update template using weighted blend when score is strong
+                            if (templateScore >= 0.65) {
+                                const cropX = Math.max(0, Math.min(width - trk.patchSize, Math.round(matchPxX - trk.patchSize / 2)));
+                                const cropY = Math.max(0, Math.min(height - trk.patchSize, Math.round(matchPxY - trk.patchSize / 2)));
+                                const cropRect = new cv.Rect(cropX, cropY, trk.patchSize, trk.patchSize);
+                                const freshPatch = currGrayMat.roi(cropRect);
+
+                                cv.addWeighted(trk.templateMat, 0.82, freshPatch, 0.18, 0, trk.templateMat);
+                                freshPatch.delete();
+                            }
+                        }
                     }
 
-                    // lucas-kanade motion tracking
+                    // --- STEP 2: Lucas-Kanade Motion Tracking ---
                     const nextPtsMat = new cv.Mat();
                     const statusMat = new cv.Mat();
                     const errMat = new cv.Mat();
@@ -321,14 +366,14 @@ self.onmessage = async (event: MessageEvent<any>) => {
                     backStatusMat.delete();
                     backErrMat.delete();
 
-                    // fusion of LK motion and appearance matching
+                    // --- STEP 3: Fusion of LK Motion & Multi-Scale Match ---
                     let updatedAnchor: { x: number; y: number } | null = null;
 
                     if (templateMatchPos) {
-                        // high confidence appearance match anchored directly onto knee visual patch
+                        // High confidence multi-scale appearance match anchored directly onto knee visual patch
                         updatedAnchor = templateMatchPos;
                     } else if (goodIndices.length >= 5) {
-                        // fallback to LK median displacement if appearance match is occluded
+                        // Fallback to LK median displacement if appearance match is occluded
                         const medianDeltaX = getMedian(dxs) / width;
                         const medianDeltaY = getMedian(dys) / height;
 
