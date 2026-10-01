@@ -20,6 +20,9 @@ export function useOpticalFlowTracker() {
 
     const workerRef = useRef<Worker | null>(null);
     const isTrackingRef = useRef(false);
+    const busyAtRef = useRef(0);
+
+    const isBusy = useCallback(() => performance.now() - busyAtRef.current < 500, []);
 
     // instantiate dedicated Web Worker on mount
     useEffect(() => {
@@ -30,6 +33,7 @@ export function useOpticalFlowTracker() {
             );
 
             worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
+                busyAtRef.current = 0;
                 const response = event.data;
                 switch (response.type) {
                     case "OPENCV_READY":
@@ -72,20 +76,23 @@ export function useOpticalFlowTracker() {
         };
     }, []);
 
-    // initialize anchors for left and/or right leg
-    const initAnchor = useCallback((frame: ImageBitmap, anchors: SideAnchors, limbs?: SideLimbs) => {
-        if (!workerRef.current) return;
-        isTrackingRef.current = true;
-        // transfer ImageBitmap ownership to worker
-        workerRef.current.postMessage({ type: "INIT_ANCHOR", frame, anchors, limbs }, [frame]);
-    }, []);
+    const sync = useCallback((frame: ImageBitmap, anchors: SideAnchors) => {
+        if (!workerRef.current || isBusy()) {
+            frame.close();
+            return;
+        }
+        busyAtRef.current = performance.now();
+        workerRef.current.postMessage({ type: "SYNC", frame, anchors }, [frame]);
+    }, [isBusy]);
 
-    // dispatch next frame for Lucas-Kanade optical flow tracking
+    // legacy helpers maintained for API backwards compatibility
+    const initAnchor = useCallback((frame: ImageBitmap, anchors: SideAnchors, _limbs?: SideLimbs) => {
+        sync(frame, anchors);
+    }, [sync]);
+
     const trackFrame = useCallback((frame: ImageBitmap) => {
-        if (!workerRef.current) return;
-        // transfer ImageBitmap ownership to worker
-        workerRef.current.postMessage({ type: "TRACK_FRAME", frame }, [frame]);
-    }, []);
+        sync(frame, {});
+    }, [sync]);
 
     // reset optical flow tracking memory
     const resetTracker = useCallback(() => {
@@ -102,7 +109,10 @@ export function useOpticalFlowTracker() {
 
     return {
         ...state,
+        points: state.trackedPoints,
         isTrackingRef,
+        isBusy,
+        sync,
         initAnchor,
         trackFrame,
         resetTracker,

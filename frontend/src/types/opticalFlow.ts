@@ -10,6 +10,12 @@ export interface SideLimbs {
     right?: { x: number; y: number }[];
 }
 
+export interface SyncPayload {
+    type: "SYNC";
+    frame: ImageBitmap;
+    anchors?: SideAnchors;
+}
+
 export interface InitAnchorPayload {
     type: "INIT_ANCHOR";
     frame: ImageBitmap;
@@ -26,7 +32,7 @@ export interface ResetPayload {
     type: "RESET";
 }
 
-export type WorkerMessage = InitAnchorPayload | TrackFramePayload | ResetPayload;
+export type WorkerMessage = SyncPayload | InitAnchorPayload | TrackFramePayload | ResetPayload;
 
 export interface TrackingSuccessResult {
     type: "TRACKING_UPDATE";

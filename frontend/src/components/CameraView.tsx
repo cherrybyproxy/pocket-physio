@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import type { PoseEngine, PoseState } from "../engine/poseEngine";
 import { useOpticalFlowTracker } from "../hooks/useOpticalFlowTracker";
 import { drawSkeleton, drawSlamAnchorCrosshair } from "../engine/drawUtils";
-import { checkConfidenceAndTriggerFallback, type FallbackTriggerEvent } from "./PoseScanner";
+import { type FallbackTriggerEvent } from "./PoseScanner";
 
 interface CameraViewProps {
   engine: PoseEngine;
@@ -46,7 +46,7 @@ export default function CameraView({
   const slamTrackerRef = useRef(slamTracker);
   slamTrackerRef.current = slamTracker;
 
-  const lastKnownJointsRef = useRef<Record<number, { x: number; y: number }>>({});
+  const lostSidesRef = useRef<Set<"left" | "right">>(new Set());
   const inFlightRef = useRef(false);
 
   // keep callback refs fresh so the continuous RAF loop never drops frames
@@ -135,100 +135,50 @@ export default function CameraView({
           // process frame through mediapipe wasm with deterministic isFrontal mode
           const state = engineRef.current.processFrame(video, now, isFrontalRef.current);
 
-          // update last-known valid high-confidence landmark positions
-          if (state?.normalizedLandmarks && !inFlightRef.current) {
-            state.normalizedLandmarks.forEach((lm, idx) => {
-              if (lm && (lm.visibility === undefined || lm.visibility >= 0.6)) {
-                lastKnownJointsRef.current[idx] = { x: lm.x, y: lm.y };
-              }
-            });
+          const lm = state?.normalizedLandmarks;
+          type Side = "left" | "right";
+          type Pt = { x: number; y: number };
+          const KNEE = { left: 25, right: 26 } as const;
+          const sides: Side[] =
+            filterSideRef.current === "left" ? ["left"] :
+            filterSideRef.current === "right" ? ["right"] : ["left", "right"];
 
-            const targetJoints =
-              filterSideRef.current === "left"
-                ? [23, 25, 27]
-                : filterSideRef.current === "right"
-                  ? [24, 26, 28]
-                  : [23, 24, 25, 26, 27, 28];
+          const anchors: { left?: Pt; right?: Pt } = {};
+          const lost = new Set<Side>();
+          for (const s of sides) {
+            const k = lm?.[KNEE[s]] as (import("@mediapipe/tasks-vision").NormalizedLandmark & { presence?: number }) | undefined;
+            const conf = k ? Math.min(k.visibility ?? 0, k.presence ?? 1) : 0;
+            if (k && conf >= 0.6) {
+              anchors[s] = { x: k.x, y: k.y };
+            } else {
+              lost.add(s);
+            }
+          }
+          lostSidesRef.current = lost;
 
+          // keep the worker fed continuously, one frame in flight, no hallucinated seeds
+          if (!inFlightRef.current && !slamTrackerRef.current.isBusy()) {
             inFlightRef.current = true;
-            checkConfidenceAndTriggerFallback(state.normalizedLandmarks, targetJoints, video)
-              .then((evt) => {
-                setFallbackStatus((prev) => {
-                  if (
-                    prev?.triggered === evt.triggered &&
-                    prev?.joint === evt.joint &&
-                    Math.abs((prev?.confidence ?? 0) - evt.confidence) < 0.05
-                  ) {
-                    return prev;
-                  }
-                  return evt;
-                });
-
-                if (evt.triggered && evt.imageBitmap) {
-                  if (!slamTrackerRef.current.isTrackingRef.current) {
-                    const sidesToTrack = evt.sidesToTrack && evt.sidesToTrack.length > 0
-                      ? evt.sidesToTrack
-                      : ["left" as const, "right" as const];
-
-                    const anchors: { left?: { x: number; y: number }; right?: { x: number; y: number } } = {};
-                    const limbs: { left?: { x: number; y: number }[]; right?: { x: number; y: number }[] } = {};
-
-                    const lms = state.normalizedLandmarks;
-                    const lKnee = lms[25] ?? lastKnownJointsRef.current[25];
-                    const rKnee = lms[26] ?? lastKnownJointsRef.current[26];
-
-                    for (const side of sidesToTrack) {
-                      const kneeIdx = side === "right" ? 26 : 25;
-                      const hipIdx = side === "right" ? 24 : 23;
-                      const ankleIdx = side === "right" ? 28 : 27;
-
-                      let anchorPoint: { x: number; y: number };
-
-                      if (lms[kneeIdx]) {
-                        anchorPoint = { x: lms[kneeIdx].x, y: lms[kneeIdx].y };
-                      } else if (lastKnownJointsRef.current[kneeIdx]) {
-                        anchorPoint = { ...lastKnownJointsRef.current[kneeIdx] };
-                      } else if (lms[hipIdx]) {
-                        anchorPoint = { x: lms[hipIdx].x, y: Math.min(0.85, lms[hipIdx].y + 0.25) };
-                      } else {
-                        anchorPoint = { x: side === "left" ? 0.65 : 0.35, y: 0.5 };
-                      }
-
-                      // Anatomical Lockdown: Left knee x MUST be > Right knee x in un-mirrored video space
-                      if (side === "left" && rKnee && anchorPoint.x < rKnee.x) {
-                        anchorPoint.x = Math.max(0.55, rKnee.x + 0.15);
-                      }
-                      if (side === "right" && lKnee && anchorPoint.x > lKnee.x) {
-                        anchorPoint.x = Math.min(0.45, lKnee.x - 0.15);
-                      }
-
-                      anchors[side] = anchorPoint;
-                      const hPt = lms[hipIdx] ?? lastKnownJointsRef.current[hipIdx];
-                      const aPt = lms[ankleIdx] ?? lastKnownJointsRef.current[ankleIdx];
-                      limbs[side] = [hPt, anchorPoint, aPt].filter(
-                        (p): p is { x: number; y: number } => Boolean(p)
-                      );
-                    }
-
-                    slamTrackerRef.current.initAnchor(evt.imageBitmap, anchors, limbs);
-                  } else {
-                    slamTrackerRef.current.trackFrame(evt.imageBitmap);
-                  }
-                } else if (!evt.triggered && slamTrackerRef.current.isTrackingRef.current) {
-                  slamTrackerRef.current.resetTracker();
-                }
-              })
+            createImageBitmap(video, { resizeWidth: 640, resizeHeight: 360 })
+              .then((bmp) => slamTrackerRef.current.sync(bmp, anchors))
+              .catch(() => {})
               .finally(() => {
                 inFlightRef.current = false;
               });
-          } else if (!state?.normalizedLandmarks) {
-            setFallbackStatus((prev) => {
-              if (prev?.triggered === true && prev.joint === "both legs" && prev.confidence === 0) {
-                return prev;
-              }
-              return { triggered: true, joint: "both legs", sidesToTrack: ["left", "right"], confidence: 0 };
-            });
           }
+
+          // Throttle HUD fallback status state updates
+          const isTriggered = lost.size > 0;
+          setFallbackStatus((prev) => {
+            if (prev?.triggered === isTriggered && (prev as any)?.count === lost.size) return prev;
+            return {
+              triggered: isTriggered,
+              joint: Array.from(lost).map((s) => `${s} knee`).join(" & ") || "none",
+              sidesToTrack: Array.from(lost),
+              confidence: isTriggered ? 0.3 : 1.0,
+              count: lost.size,
+            } as any;
+          });
 
           // clear canvas frame
           ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -242,14 +192,11 @@ export default function CameraView({
           }
           ctx.restore();
 
-          // draw SLAM optical flow target crosshairs matching side colors when tracking
-          if (slamTrackerRef.current.isTracking && slamTrackerRef.current.trackedPoints) {
-            const pts = slamTrackerRef.current.trackedPoints;
-            if (pts.left) {
-              drawSlamAnchorCrosshair(ctx, pts.left, canvas.width, canvas.height, "left");
-            }
-            if (pts.right) {
-              drawSlamAnchorCrosshair(ctx, pts.right, canvas.width, canvas.height, "right");
+          // draw SLAM optical flow target crosshairs ONLY on lost sides
+          const pts = slamTrackerRef.current.points;
+          for (const s of lostSidesRef.current) {
+            if (pts?.[s]) {
+              drawSlamAnchorCrosshair(ctx, pts[s]!, canvas.width, canvas.height, s);
             }
           }
 
