@@ -1,4 +1,4 @@
-// Web Worker for Dual Optical Flow Tracking via OpenCV.js WebAssembly
+// Web Worker for Dual Optical Flow & Appearance-Based Template Matching via OpenCV.js WebAssembly
 
 declare const cv: any;
 declare function importScripts(...urls: string[]): void;
@@ -24,6 +24,8 @@ let offscreenCtx: OffscreenCanvasRenderingContext2D | null = null;
 
 interface SideTracker {
     prevPtsMat: any;
+    templateMat: any;
+    patchSize: number;
     currentAnchor: { x: number; y: number };
 }
 
@@ -77,10 +79,12 @@ function resetMemoryState() {
     }
     if (trackers.left) {
         if (trackers.left.prevPtsMat) trackers.left.prevPtsMat.delete();
+        if (trackers.left.templateMat) trackers.left.templateMat.delete();
         delete trackers.left;
     }
     if (trackers.right) {
         if (trackers.right.prevPtsMat) trackers.right.prevPtsMat.delete();
+        if (trackers.right.templateMat) trackers.right.templateMat.delete();
         delete trackers.right;
     }
 }
@@ -129,6 +133,15 @@ self.onmessage = async (event: MessageEvent<any>) => {
                     const anchor = anchors[side]!;
                     const limb = limbs?.[side];
 
+                    // extract visual appearance template patch of knee ROI (44x44 px)
+                    const patchSize = 44;
+                    const halfPatch = patchSize / 2;
+                    const cropX = Math.max(0, Math.min(width - patchSize, Math.round(anchor.x * width - halfPatch)));
+                    const cropY = Math.max(0, Math.min(height - patchSize, Math.round(anchor.y * height - halfPatch)));
+                    const rect = new cv.Rect(cropX, cropY, patchSize, patchSize);
+                    const templateMat = grayMat.roi(rect).clone();
+
+                    // extract Shi-Tomasi feature points along limb
                     const mask = cv.Mat.zeros(height, width, cv.CV_8UC1);
                     const pts = limb && limb.length > 0 ? limb : [anchor];
 
@@ -155,6 +168,8 @@ self.onmessage = async (event: MessageEvent<any>) => {
 
                     trackers[side] = {
                         prevPtsMat: ptsMat,
+                        templateMat,
+                        patchSize,
                         currentAnchor: { x: anchor.x, y: anchor.y },
                     };
                     resultPoints[side] = { x: anchor.x, y: anchor.y };
@@ -215,11 +230,42 @@ self.onmessage = async (event: MessageEvent<any>) => {
 
                 for (const side of sides) {
                     const trk = trackers[side]!;
+
+                    // appearance-based template matching
+                    let templateMatchPos: { x: number; y: number } | null = null;
+                    let templateScore = 0;
+
+                    if (trk.templateMat) {
+                        const searchSize = 140; // 140x140 search window around previous knee center
+                        const halfSearch = searchSize / 2;
+                        const halfPatch = trk.patchSize / 2;
+
+                        const searchX = Math.max(0, Math.min(width - searchSize, Math.round(trk.currentAnchor.x * width - halfSearch)));
+                        const searchY = Math.max(0, Math.min(height - searchSize, Math.round(trk.currentAnchor.y * height - halfSearch)));
+                        const searchRect = new cv.Rect(searchX, searchY, searchSize, searchSize);
+                        const searchMat = currGrayMat.roi(searchRect);
+
+                        const resMat = new cv.Mat();
+                        cv.matchTemplate(searchMat, trk.templateMat, resMat, cv.TM_CCOEFF_NORMED);
+                        const mm = cv.minMaxLoc(resMat);
+
+                        templateScore = mm.maxVal;
+                        if (templateScore >= 0.45) {
+                            templateMatchPos = {
+                                x: (searchX + mm.maxLoc.x + halfPatch) / width,
+                                y: (searchY + mm.maxLoc.y + halfPatch) / height,
+                            };
+                        }
+
+                        searchMat.delete();
+                        resMat.delete();
+                    }
+
+                    // lucas-kanade motion tracking
                     const nextPtsMat = new cv.Mat();
                     const statusMat = new cv.Mat();
                     const errMat = new cv.Mat();
 
-                    // Forward LK
                     cv.calcOpticalFlowPyrLK(
                         prevGrayMat,
                         currGrayMat,
@@ -232,7 +278,6 @@ self.onmessage = async (event: MessageEvent<any>) => {
                         criteria
                     );
 
-                    // Backward LK
                     const backPtsMat = new cv.Mat();
                     const backStatusMat = new cv.Mat();
                     const backErrMat = new cv.Mat();
@@ -276,29 +321,43 @@ self.onmessage = async (event: MessageEvent<any>) => {
                     backStatusMat.delete();
                     backErrMat.delete();
 
-                    if (goodIndices.length >= 5) {
+                    // fusion of LK motion and appearance matching
+                    let updatedAnchor: { x: number; y: number } | null = null;
+
+                    if (templateMatchPos) {
+                        // high confidence appearance match anchored directly onto knee visual patch
+                        updatedAnchor = templateMatchPos;
+                    } else if (goodIndices.length >= 5) {
+                        // fallback to LK median displacement if appearance match is occluded
                         const medianDeltaX = getMedian(dxs) / width;
                         const medianDeltaY = getMedian(dys) / height;
 
-                        trk.currentAnchor = {
+                        updatedAnchor = {
                             x: Math.max(0, Math.min(1, trk.currentAnchor.x + medianDeltaX)),
                             y: Math.max(0, Math.min(1, trk.currentAnchor.y + medianDeltaY)),
                         };
+                    }
 
-                        const validPtsMat = new cv.Mat(goodIndices.length, 1, cv.CV_32FC2);
-                        for (let idx = 0; idx < goodIndices.length; idx++) {
-                            const origIdx = goodIndices[idx];
-                            validPtsMat.data32F[idx * 2] = nextPtsMat.data32F[origIdx * 2];
-                            validPtsMat.data32F[idx * 2 + 1] = nextPtsMat.data32F[origIdx * 2 + 1];
+                    if (updatedAnchor) {
+                        trk.currentAnchor = updatedAnchor;
+
+                        if (goodIndices.length > 0) {
+                            const validPtsMat = new cv.Mat(goodIndices.length, 1, cv.CV_32FC2);
+                            for (let idx = 0; idx < goodIndices.length; idx++) {
+                                const origIdx = goodIndices[idx];
+                                validPtsMat.data32F[idx * 2] = nextPtsMat.data32F[origIdx * 2];
+                                validPtsMat.data32F[idx * 2 + 1] = nextPtsMat.data32F[origIdx * 2 + 1];
+                            }
+                            trk.prevPtsMat.delete();
+                            trk.prevPtsMat = validPtsMat;
                         }
 
-                        trk.prevPtsMat.delete();
-                        trk.prevPtsMat = validPtsMat;
                         resultPoints[side] = trk.currentAnchor;
-                        totalQuality += numPoints > 0 ? goodIndices.length / numPoints : 0;
+                        totalQuality += Math.max(templateScore, numPoints > 0 ? goodIndices.length / numPoints : 0);
                         activeCount++;
                     } else {
                         trk.prevPtsMat.delete();
+                        if (trk.templateMat) trk.templateMat.delete();
                         delete trackers[side];
                     }
 
