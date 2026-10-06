@@ -1,4 +1,4 @@
-// Web Worker for Dual Optical Flow & Appearance-Based Template Matching via OpenCV.js WebAssembly
+// worker for tracking knee motion using optical flow and appearance matching via opencv.js
 
 declare const cv: any;
 declare function importScripts(...urls: string[]): void;
@@ -34,24 +34,24 @@ const trackers: { left?: SideTracker; right?: SideTracker } = {};
 
 function loadOpenCV() {
     try {
-        console.log("[OpticalFlowWorker] Loading OpenCV.js WebAssembly...");
+        console.log("[OpticalFlowWorker] loading opencv.js...");
         importScripts("https://docs.opencv.org/4.8.0/opencv.js");
 
         if (typeof cv !== "undefined") {
             if (cv.Mat) {
                 isOpenCvReady = true;
-                console.log("[OpticalFlowWorker] OpenCV.js WASM loaded & initialized!");
+                console.log("[OpticalFlowWorker] opencv.js initialized");
                 self.postMessage({ type: "OPENCV_READY" });
             } else {
                 cv.onRuntimeInitialized = () => {
                     isOpenCvReady = true;
-                    console.log("[OpticalFlowWorker] OpenCV.js onRuntimeInitialized fired!");
+                    console.log("[OpticalFlowWorker] opencv.js initialized");
                     self.postMessage({ type: "OPENCV_READY" });
                 };
             }
         }
     } catch (err) {
-        console.warn("[OpticalFlowWorker] OpenCV.js script loading failed:", err);
+        console.warn("[OpticalFlowWorker] opencv.js failed to load:", err);
     }
 }
 
@@ -61,7 +61,7 @@ function bitmapToGrayscaleMat(frame: ImageBitmap): any {
         offscreenCtx = offscreenCanvas.getContext("2d", { willReadFrequently: true });
     }
 
-    if (!offscreenCtx) throw new Error("Failed to get 2d context from OffscreenCanvas");
+    if (!offscreenCtx) throw new Error("failed to get 2d context from offscreen canvas");
 
     offscreenCtx.drawImage(frame, 0, 0);
     const imageData = offscreenCtx.getImageData(0, 0, frame.width, frame.height);
@@ -99,7 +99,7 @@ self.onmessage = async (event: MessageEvent<any>) => {
     if (!isOpenCvReady) {
         self.postMessage({
             type: "ERROR",
-            message: "OpenCV.js WebAssembly runtime is not yet initialized.",
+            message: "opencv.js is not yet initialized",
         } as WorkerErrorResult);
         return;
     }
@@ -127,7 +127,7 @@ self.onmessage = async (event: MessageEvent<any>) => {
                     const anchor = anchors[side]!;
                     const limb = limbs?.[side];
 
-                    // extract visual appearance template patch of knee ROI (44x44 px)
+                    // extract a visual template patch of the knee region
                     const patchSize = 44;
                     const halfPatch = patchSize / 2;
                     const cropX = Math.max(0, Math.min(width - patchSize, Math.round(anchor.x * width - halfPatch)));
@@ -135,17 +135,18 @@ self.onmessage = async (event: MessageEvent<any>) => {
                     const rect = new cv.Rect(cropX, cropY, patchSize, patchSize);
                     const templateMat = grayMat.roi(rect).clone();
 
-                    // Extract Shi-Tomasi features with a priority on the KNEE, not the whole shin.
+                    // extract shi-tomasi features, prioritizing the knee instead of the whole shin
                     const mask = cv.Mat.zeros(height, width, cv.CV_8UC1);
                     const pts = limb && limb.length > 0 ? limb : [anchor];
 
-                    // Draw thin supporting line along the limb for background context
+                    // draw a thin line along the limb to capture some supporting features
                     for (let i = 0; i < pts.length - 1; i++) {
                         if (pts[i] && pts[i + 1]) {
                             cv.line(mask, P(pts[i]), P(pts[i + 1]), new cv.Scalar(255), 10);
                         }
                     }
-                    // Draw a strong 30px radius around the knee to guarantee knee features dominate
+                    
+                    // draw a 30px circle around the knee so its features dominate the tracking
                     cv.circle(mask, P(anchor), 30, new cv.Scalar(255), -1);
 
                     const corners = new cv.Mat();
@@ -180,10 +181,10 @@ self.onmessage = async (event: MessageEvent<any>) => {
                     status: "TRACKING",
                 });
             } catch (err: any) {
-                console.error("[OpticalFlowWorker] Failed to initialize anchor:", err);
+                console.error("[OpticalFlowWorker] failed to initialize anchor:", err);
                 self.postMessage({
                     type: "ERROR",
-                    message: err?.message ?? "Failed to initialize SLAM anchor",
+                    message: err?.message ?? "failed to initialize tracking anchor",
                 } as WorkerErrorResult);
             } finally {
                 frame.close();
@@ -231,7 +232,7 @@ self.onmessage = async (event: MessageEvent<any>) => {
                     const prevAnchorPx = trk.currentAnchor.x * width;
                     const prevAnchorPy = trk.currentAnchor.y * height;
 
-                    // 1. Lucas-Kanade motion tracking
+                    // lucas-kanade motion tracking
                     const nextPtsMat = new cv.Mat();
                     const statusMat = new cv.Mat();
                     const errMat = new cv.Mat();
@@ -273,7 +274,7 @@ self.onmessage = async (event: MessageEvent<any>) => {
                     let farPts = 0;
 
                     const numPoints = nextPtsMat.rows;
-                    const distanceScale = 40; // Pixels
+                    const distanceScale = 40; 
 
                     for (let i = 0; i < numPoints; i++) {
                         if (statusMat.data[i] !== 1 || backStatusMat.data[i] !== 1) continue;
@@ -289,7 +290,8 @@ self.onmessage = async (event: MessageEvent<any>) => {
                         const nextY = nextPtsMat.data32F[i * 2 + 1];
 
                         const distFromKnee = Math.hypot(prevX - prevAnchorPx, prevY - prevAnchorPy);
-                        // Points closer to the knee anchor have MUCH higher weight
+                        
+                        // weight points closer to the knee anchor more heavily
                         const weight = 1 / (1 + distFromKnee / distanceScale);
 
                         if (distFromKnee < 40) nearKneePts++; else farPts++;
@@ -304,7 +306,7 @@ self.onmessage = async (event: MessageEvent<any>) => {
                     backStatusMat.delete();
                     backErrMat.delete();
 
-                    // Calculate robust weighted local motion
+                    // calculate weighted local motion
                     let lkDeltaX = 0;
                     let lkDeltaY = 0;
                     if (goodIndices.length > 0) {
@@ -317,7 +319,7 @@ self.onmessage = async (event: MessageEvent<any>) => {
                         lkDeltaX = sumDX / sumW;
                         lkDeltaY = sumDY / sumW;
 
-                        // Cap maximum frame-to-frame displacement
+                        // cap maximum frame-to-frame displacement
                         const moveDist = Math.hypot(lkDeltaX, lkDeltaY);
                         if (moveDist > 25) {
                             lkDeltaX = (lkDeltaX / moveDist) * 25;
@@ -328,13 +330,13 @@ self.onmessage = async (event: MessageEvent<any>) => {
                     const lkPredX = prevAnchorPx + lkDeltaX;
                     const lkPredY = prevAnchorPy + lkDeltaY;
 
-                    // 2. Appearance-based template matching centered on LK prediction
+                    // appearance-based template matching centered on the predicted position
                     let templateMatchPos: { x: number; y: number } | null = null;
                     let templateScore = 0;
                     let templateDisp = 0;
 
                     if (trk.templateMat) {
-                        const searchSize = 80; // Constrained search window
+                        const searchSize = 80; 
                         const halfSearch = searchSize / 2;
                         const halfPatch = trk.patchSize / 2;
 
@@ -349,7 +351,7 @@ self.onmessage = async (event: MessageEvent<any>) => {
 
                         templateScore = mm.maxVal;
                         
-                        // Accept template only if strong score AND physically near the LK prediction
+                        // accept the template only if the score is strong and it's physically near the optical flow prediction
                         if (templateScore >= 0.55) {
                             const matchCenterPx = searchX + mm.maxLoc.x + halfPatch;
                             const matchCenterPy = searchY + mm.maxLoc.y + halfPatch;
@@ -367,16 +369,33 @@ self.onmessage = async (event: MessageEvent<any>) => {
                         resMat.delete();
                     }
 
-                    // 3. Fusion
+                    // fusion and anatomical identity
                     let updatedAnchor: { x: number; y: number } | null = null;
+                    let visibilityState: "VISIBLE" | "WEAK" | "NOT_VISIBLE" = "NOT_VISIBLE";
+                    let kneeIdentityConfidence = 0;
+                    let motionConfidence = goodIndices.length > 0 ? Math.min(1.0, goodIndices.length / 15) : 0;
 
                     if (templateMatchPos) {
                         updatedAnchor = templateMatchPos;
+                        visibilityState = "VISIBLE";
+                        kneeIdentityConfidence = templateScore;
                     } else if (goodIndices.length >= 4) {
                         updatedAnchor = {
                             x: Math.max(0, Math.min(1, lkPredX / width)),
                             y: Math.max(0, Math.min(1, lkPredY / height)),
                         };
+                        
+                        // without a strong template match, we only have motion confidence.
+                        // we don't have anatomical identity confidence unless the appearance loosely matches.
+                        kneeIdentityConfidence = templateScore; 
+                        
+                        if (templateScore >= 0.40) {
+                            // looks somewhat like a knee and is moving coherently
+                            visibilityState = "WEAK"; 
+                        } else {
+                            // moving pixels, but it doesn't look like a knee
+                            visibilityState = "NOT_VISIBLE"; 
+                        }
                     }
 
                     const finalDisp = updatedAnchor ? Math.hypot(updatedAnchor.x * width - prevAnchorPx, updatedAnchor.y * height - prevAnchorPy) : 0;
@@ -390,10 +409,16 @@ self.onmessage = async (event: MessageEvent<any>) => {
                         localDy: lkDeltaY.toFixed(1),
                         templateScore: templateScore.toFixed(2),
                         templateDisp: templateDisp.toFixed(1),
-                        finalDisp: finalDisp.toFixed(1)
+                        finalDisp: finalDisp.toFixed(1),
+                        motionConfidence: motionConfidence.toFixed(2),
+                        kneeIdentityConfidence: kneeIdentityConfidence.toFixed(2),
+                        visibility: visibilityState
                     };
 
                     if (updatedAnchor) {
+                        // only update the anchor if we have some evidence it's the knee
+                        // if it's not visible, the tracker is blindly following texture that doesn't look like the knee.
+                        // we still allow it to prevent immediate tracking drop, but the parent ui can ignore it.
                         trk.currentAnchor = updatedAnchor;
 
                         if (goodIndices.length > 0) {
@@ -408,7 +433,7 @@ self.onmessage = async (event: MessageEvent<any>) => {
                         }
 
                         resultPoints[side] = trk.currentAnchor;
-                        totalQuality += Math.max(templateScore, numPoints > 0 ? goodIndices.length / numPoints : 0);
+                        totalQuality += kneeIdentityConfidence;
                         activeCount++;
                     } else {
                         trk.prevPtsMat.delete();
@@ -444,10 +469,10 @@ self.onmessage = async (event: MessageEvent<any>) => {
                     });
                 }
             } catch (err: any) {
-                console.error("[OpticalFlowWorker] Optical flow tracking failed:", err);
+                console.error("[OpticalFlowWorker] tracking failed:", err);
                 self.postMessage({
                     type: "ERROR",
-                    message: err?.message ?? "Optical flow frame tracking failed",
+                    message: err?.message ?? "optical flow frame tracking failed",
                 } as WorkerErrorResult);
             } finally {
                 frame.close();
