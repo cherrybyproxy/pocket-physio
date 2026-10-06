@@ -295,11 +295,11 @@ export default function CameraView({
             position: "absolute",
             top: "14px",
             right: "14px",
-            padding: "5px 11px",
-            borderRadius: "20px",
-            fontSize: "0.74rem",
+            padding: "5px 12px",
+            borderRadius: "6px",
+            fontSize: "0.76rem",
             fontWeight: 500,
-            letterSpacing: "0.02em",
+            letterSpacing: "0.01em",
             fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
             display: "flex",
             alignItems: "center",
@@ -307,18 +307,12 @@ export default function CameraView({
             backdropFilter: "blur(12px)",
             WebkitBackdropFilter: "blur(12px)",
             zIndex: 10,
-            border: fallbackStatus.triggered
-              ? "1px solid rgba(239, 68, 68, 0.45)"
-              : "1px solid rgba(255, 255, 255, 0.12)",
-            background: fallbackStatus.triggered
-              ? "rgba(24, 15, 20, 0.82)"
-              : "rgba(15, 23, 42, 0.72)",
-            color: fallbackStatus.triggered ? "#fca5a5" : "rgba(255, 255, 255, 0.85)",
-            boxShadow: fallbackStatus.triggered
-              ? "0 4px 14px rgba(239, 68, 68, 0.25)"
-              : "0 4px 12px rgba(0, 0, 0, 0.2)",
+            border: "1px solid rgba(137, 66, 155, 0.4)",
+            background: "rgba(24, 15, 30, 0.75)",
+            color: "#ffffff",
+            boxShadow: "0 2px 8px rgba(0, 0, 0, 0.3)",
             pointerEvents: "none",
-            transition: "all 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
+            transition: "all 0.2s ease",
           }}
         >
           <span
@@ -326,20 +320,17 @@ export default function CameraView({
               width: "6px",
               height: "6px",
               borderRadius: "50%",
-              backgroundColor: fallbackStatus.triggered ? "#ef4444" : "#22c55e",
-              boxShadow: fallbackStatus.triggered
-                ? "0 0 6px #ef4444"
-                : "0 0 4px #22c55e",
+              backgroundColor: "#89429b",
               flexShrink: 0,
             }}
           />
           {fallbackStatus.triggered ? (
             <span>
-              SLAM FALLBACK ({fallbackStatus.joint}: {(fallbackStatus.confidence * 100).toFixed(0)}%)
+              Optical Fallback • {(fallbackStatus.confidence * 100).toFixed(0)}%
             </span>
           ) : (
             <span>
-              MEDIAPIPE ({(fallbackStatus.confidence * 100).toFixed(0)}%)
+              Pose Tracking • {(fallbackStatus.confidence * 100).toFixed(0)}%
             </span>
           )}
         </div>
