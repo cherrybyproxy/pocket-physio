@@ -86,26 +86,51 @@ function resetMemoryState() {
     }
 }
 
-function extractFeaturesLocal(grayMat: any, anchor: { x: number; y: number }, width: number, height: number): any {
+function extractFeaturesLocal(
+    grayMat: any,
+    anchor: { x: number; y: number },
+    width: number,
+    height: number
+): any {
     const mask = cv.Mat.zeros(height, width, cv.CV_8UC1);
-    const P = new cv.Point(Math.round(anchor.x * width), Math.round(anchor.y * height));
 
-    // initialize Shi-Tomasi features inside a strict knee-centered ROI
-    cv.circle(mask, P, 35, new cv.Scalar(255), -1);
+    const P = new cv.Point(
+        Math.round(anchor.x * width),
+        Math.round(anchor.y * height)
+    );
+
+    // Strict knee-centered ROI
+    cv.circle(
+        mask,
+        P,
+        35,
+        new cv.Scalar(255),
+        -1
+    );
 
     const corners = new cv.Mat();
-    cv.goodFeaturesToTrack(grayMat, corners, 50, 0.01, 5, mask);
+
+    cv.goodFeaturesToTrack(
+        grayMat,
+        corners,
+        50,
+        0.01,
+        5,
+        mask
+    );
+
     mask.delete();
 
     if (corners.rows > 0) {
         return corners;
-    } else {
-        corners.delete();
-        const fallback = new cv.Mat(1, 1, cv.CV_32FC2);
-        fallback.data32F[0] = Math.round(anchor.x * width);
-        fallback.data32F[1] = Math.round(anchor.y * height);
-        return fallback;
     }
+
+    // IMPORTANT:
+    // Never return undefined. OpenCV optical-flow functions
+    // require a valid Mat even when there are zero points.
+    corners.delete();
+
+    return new cv.Mat(0, 1, cv.CV_32FC2);
 }
 
 const getMedian = (arr: number[]): number => {
@@ -230,6 +255,50 @@ self.onmessage = async (event: MessageEvent<any>) => {
                     const nextPtsMat = new cv.Mat();
                     const statusMat = new cv.Mat();
                     const errMat = new cv.Mat();
+
+                    if (!trk.prevPtsMat || trk.prevPtsMat.rows === 0) {
+                        trk.state = "UNCERTAIN";
+                        trk.uncertainFrames++;
+
+                        if (trk.uncertainFrames > 15) {
+                            trk.state = "LOST";
+                        }
+
+                        if (trk.state !== "LOST") {
+                            resultPoints[side] = trk.trustedAnchor;
+                            hasUncertain = true;
+                        }
+
+                        debugLogs[side] = {
+                            trustedAnchor: {
+                                x: trustedPx,
+                                y: trustedPy
+                            },
+                            candidateAnchor: {
+                                x: trustedPx,
+                                y: trustedPy
+                            },
+                            finalAnchor: {
+                                x: trustedPx,
+                                y: trustedPy
+                            },
+                            totalLKPoints: 0,
+                            localLKPoints: 0,
+                            rejectedFarPoints: 0,
+                            templateScore: "0.00",
+                            templateDisplacement: "0.0",
+                            state: trk.state,
+                            rejectionReason: "NO_FEATURES"
+                        };
+
+                        if (trk.state === "LOST") {
+                            if (trk.prevPtsMat) trk.prevPtsMat.delete();
+                            if (trk.templateMat) trk.templateMat.delete();
+                            delete trackers[side];
+                        }
+
+                        continue;
+                    }
 
                     cv.calcOpticalFlowPyrLK(prevGrayMat, currGrayMat, trk.prevPtsMat, nextPtsMat, statusMat, errMat, winSize, maxLevel, criteria);
 
@@ -378,8 +447,8 @@ self.onmessage = async (event: MessageEvent<any>) => {
                             const validPtsMat = new cv.Mat(goodIndices.length, 1, cv.CV_32FC2);
                             for (let idx = 0; idx < goodIndices.length; idx++) {
                                 const origIdx = goodIndices[idx];
-                                validPtsMat.data32F[idx * 2] = trk.prevPtsMat.data32F[origIdx * 2];
-                                validPtsMat.data32F[idx * 2 + 1] = trk.prevPtsMat.data32F[origIdx * 2 + 1];
+                                validPtsMat.data32F[idx * 2] = nextPtsMat.data32F[origIdx * 2];
+                                validPtsMat.data32F[idx * 2 + 1] = nextPtsMat.data32F[origIdx * 2 + 1];
                             }
                             trk.prevPtsMat.delete();
                             trk.prevPtsMat = validPtsMat;
