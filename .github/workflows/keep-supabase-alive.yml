@@ -2,16 +2,17 @@ name: Keep Supabase Alive
 
 on:
   schedule:
-    # Runs every 4 days at midnight UTC (0 0 */4 * *)
-    - cron: '0 0 */4 * *'
-  push:
-    branches: [ main ]
-  workflow_dispatch: # Allows manual trigger from GitHub UI
+    # Runs every 3 days at midnight UTC
+    - cron: '0 0 */3 * *'
+  workflow_dispatch:
 
 jobs:
   ping-supabase:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping Supabase REST API
+      - name: Ping Postgres Database
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          curl -s -o /dev/null -w "%{http_code}" https://vrzynujjspzxyreltvoj.supabase.co/rest/v1/
+          sudo apt-get install -y postgresql-client
+          psql "$DATABASE_URL" -c "SELECT 1;"
