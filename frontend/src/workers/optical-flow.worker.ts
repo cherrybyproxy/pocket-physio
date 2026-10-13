@@ -24,6 +24,8 @@ interface SideTracker {
     trustedAnchor: { x: number; y: number };
     uncertainFrames: number;
     state: "TRACKING" | "UNCERTAIN" | "LOST";
+    lastDeltaX: number;
+    lastDeltaY: number;
 }
 
 let prevGrayMat: any = null;
@@ -189,7 +191,9 @@ self.onmessage = async (event: MessageEvent<any>) => {
                         patchSize,
                         trustedAnchor: { x: anchor.x, y: anchor.y },
                         uncertainFrames: 0,
-                        state: "TRACKING"
+                        state: "TRACKING",
+                        lastDeltaX: 0,
+                        lastDeltaY: 0
                     };
                     resultPoints[side] = { x: anchor.x, y: anchor.y };
                 }
@@ -251,11 +255,24 @@ self.onmessage = async (event: MessageEvent<any>) => {
                     const trustedPx = trk.trustedAnchor.x * width;
                     const trustedPy = trk.trustedAnchor.y * height;
 
-                    // lucas-kanade motion tracking
-                    const nextPtsMat = new cv.Mat();
-                    const statusMat = new cv.Mat();
-                    const errMat = new cv.Mat();
+                    // calculate bounded predicted search center for recovery
+                    let predDeltaX = 0;
+                    let predDeltaY = 0;
 
+                    // limit prediction to the first 3 uncertain frames and bound to 25px per-frame movement
+                    if (trk.uncertainFrames > 0 && trk.uncertainFrames <= 3) {
+                        const mag = Math.hypot(trk.lastDeltaX, trk.lastDeltaY);
+                        if (mag > 0) {
+                            const step = Math.min(mag, 25);
+                            predDeltaX = (trk.lastDeltaX / mag) * step;
+                            predDeltaY = (trk.lastDeltaY / mag) * step;
+                        }
+                    }
+
+                    const predictedPx = Math.max(0, Math.min(width, trustedPx + predDeltaX));
+                    const predictedPy = Math.max(0, Math.min(height, trustedPy + predDeltaY));
+
+                    // empty-feature recovery branch
                     if (!trk.prevPtsMat || trk.prevPtsMat.rows === 0) {
                         trk.state = "UNCERTAIN";
                         trk.uncertainFrames++;
@@ -264,41 +281,70 @@ self.onmessage = async (event: MessageEvent<any>) => {
                             trk.state = "LOST";
                         }
 
-                        if (trk.state !== "LOST") {
-                            resultPoints[side] = trk.trustedAnchor;
-                            hasUncertain = true;
+                        if (trk.state === "LOST") {
+                            debugLogs[side] = {
+                                trustedAnchor: { x: trustedPx, y: trustedPy },
+                                candidateAnchor: { x: trustedPx, y: trustedPy },
+                                finalAnchor: { x: trustedPx, y: trustedPy },
+                                predictedAnchor: { x: predictedPx, y: predictedPy },
+                                totalLKPoints: 0,
+                                localLKPoints: 0,
+                                rejectedFarPoints: 0,
+                                templateScore: "0.00",
+                                templateDisplacement: "0.0",
+                                state: "LOST",
+                                rejectionReason: "NO_FEATURES",
+                                recoveryAttempted: false,
+                                recoveryFeatureCount: 0,
+                                recoveryAccepted: false,
+                                uncertainFrames: trk.uncertainFrames
+                            };
+
+                            if (trk.prevPtsMat) trk.prevPtsMat.delete();
+                            if (trk.templateMat) trk.templateMat.delete();
+                            delete trackers[side];
+                            continue;
                         }
 
+                        // remain UNCERTAIN and hold last trusted anchor
+                        resultPoints[side] = trk.trustedAnchor;
+                        hasUncertain = true;
+
+                        // attempt local feature redetection around predicted location
+                        const recoveryCenter = { x: predictedPx / width, y: predictedPy / height };
+                        const newPtsMat = extractFeaturesLocal(currGrayMat, recoveryCenter, width, height);
+                        const recoveryFeatureCount = newPtsMat.rows;
+
+                        if (trk.prevPtsMat) trk.prevPtsMat.delete();
+                        trk.prevPtsMat = newPtsMat;
+
                         debugLogs[side] = {
-                            trustedAnchor: {
-                                x: trustedPx,
-                                y: trustedPy
-                            },
-                            candidateAnchor: {
-                                x: trustedPx,
-                                y: trustedPy
-                            },
-                            finalAnchor: {
-                                x: trustedPx,
-                                y: trustedPy
-                            },
+                            trustedAnchor: { x: trustedPx, y: trustedPy },
+                            candidateAnchor: { x: trustedPx, y: trustedPy },
+                            finalAnchor: { x: trustedPx, y: trustedPy },
+                            predictedAnchor: { x: predictedPx, y: predictedPy },
                             totalLKPoints: 0,
                             localLKPoints: 0,
                             rejectedFarPoints: 0,
                             templateScore: "0.00",
                             templateDisplacement: "0.0",
                             state: trk.state,
-                            rejectionReason: "NO_FEATURES"
+                            rejectionReason: "NO_FEATURES",
+                            recoveryAttempted: true,
+                            recoveryFeatureCount,
+                            recoveryAccepted: false,
+                            uncertainFrames: trk.uncertainFrames
                         };
-
-                        if (trk.state === "LOST") {
-                            if (trk.prevPtsMat) trk.prevPtsMat.delete();
-                            if (trk.templateMat) trk.templateMat.delete();
-                            delete trackers[side];
-                        }
 
                         continue;
                     }
+
+                    // lucas-kanade motion tracking mats allocated after zero-feature check
+                    const nextPtsMat = new cv.Mat();
+                    const statusMat = new cv.Mat();
+                    const errMat = new cv.Mat();
+
+                    const wasUncertain = trk.state === "UNCERTAIN" || trk.uncertainFrames > 0;
 
                     cv.calcOpticalFlowPyrLK(prevGrayMat, currGrayMat, trk.prevPtsMat, nextPtsMat, statusMat, errMat, winSize, maxLevel, criteria);
 
@@ -417,12 +463,21 @@ self.onmessage = async (event: MessageEvent<any>) => {
                     }
 
                     let finalAnchor = { ...trk.trustedAnchor };
+                    let recoveryAttempted = false;
+                    let recoveryFeatureCount = 0;
+                    let recoveryAccepted = false;
 
                     if (candidateAccepted) {
                         trk.trustedAnchor = { x: candidatePx / width, y: candidatePy / height };
                         trk.state = "TRACKING";
                         trk.uncertainFrames = 0;
+                        trk.lastDeltaX = lkDeltaX;
+                        trk.lastDeltaY = lkDeltaY;
                         finalAnchor = { ...trk.trustedAnchor };
+
+                        if (wasUncertain) {
+                            recoveryAccepted = true;
+                        }
 
                         const validPtsMat = new cv.Mat(goodIndices.length, 1, cv.CV_32FC2);
                         for (let idx = 0; idx < goodIndices.length; idx++) {
@@ -439,8 +494,12 @@ self.onmessage = async (event: MessageEvent<any>) => {
 
                         if (localLKPoints < minLocalPoints) {
                             // Only redetect local features when the existing local feature count genuinely falls below threshold
+                            recoveryAttempted = true;
+                            const recoveryCenter = { x: predictedPx / width, y: predictedPy / height };
+                            const newPtsMat = extractFeaturesLocal(currGrayMat, recoveryCenter, width, height);
+                            recoveryFeatureCount = newPtsMat.rows;
                             trk.prevPtsMat.delete();
-                            trk.prevPtsMat = extractFeaturesLocal(currGrayMat, trk.trustedAnchor, width, height);
+                            trk.prevPtsMat = newPtsMat;
                         } else {
                             // Do not continuously replace the feature set unless there is a genuine feature-loss condition.
                             // The points were rejected for excessive motion, but might be valid. Retain their previous locations.
@@ -471,13 +530,18 @@ self.onmessage = async (event: MessageEvent<any>) => {
                         trustedAnchor: { x: trustedPx, y: trustedPy },
                         candidateAnchor: { x: candidatePx, y: candidatePy },
                         finalAnchor: { x: finalAnchor.x * width, y: finalAnchor.y * height },
+                        predictedAnchor: { x: predictedPx, y: predictedPy },
                         totalLKPoints: numPoints,
                         localLKPoints,
                         rejectedFarPoints,
                         templateScore: templateScore.toFixed(2),
                         templateDisplacement: templateDisp.toFixed(1),
                         state: trk.state,
-                        rejectionReason: rejectionReason || "NONE"
+                        rejectionReason: rejectionReason || "NONE",
+                        recoveryAttempted,
+                        recoveryFeatureCount,
+                        recoveryAccepted,
+                        uncertainFrames: trk.uncertainFrames
                     };
 
                     if (trk.state === "LOST") {
