@@ -1,7 +1,7 @@
 // core component: acquires webcam, runs mediapipe continuously, and renders
 // the skeleton overlay + hud on an html5 canvas stacked on top of the video.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import type { PoseEngine, PoseState } from "../engine/poseEngine";
 import { useOpticalFlowTracker } from "../hooks/useOpticalFlowTracker";
 import { drawSkeleton, drawSlamAnchorCrosshair } from "../engine/drawUtils";
@@ -28,6 +28,13 @@ interface CameraViewProps {
   onCanvasClick?: () => void;
 }
 
+interface CachedJoint {
+  x: number;
+  y: number;
+  visibility: number;
+  timestamp: number;
+}
+
 export default function CameraView({
   engine,
   isFrontal,
@@ -46,8 +53,25 @@ export default function CameraView({
   const slamTrackerRef = useRef(slamTracker);
   slamTrackerRef.current = slamTracker;
 
-  const lastKnownJointsRef = useRef<Record<number, { x: number; y: number }>>({});
+  const lastKnownJointsRef = useRef<Record<number, CachedJoint>>({});
   const inFlightRef = useRef(false);
+
+  // invalidate cached joint coordinates
+  const invalidateJointCache = useCallback(() => {
+    lastKnownJointsRef.current = {};
+  }, []);
+
+  // clear cached coordinates when session or calibration resets
+  const prevIsActiveRef = useRef(isActive);
+  useEffect(() => {
+    if (prevIsActiveRef.current !== isActive) {
+      prevIsActiveRef.current = isActive;
+      invalidateJointCache();
+      if (slamTrackerRef.current.isTrackingRef.current) {
+        slamTrackerRef.current.resetTracker();
+      }
+    }
+  }, [isActive, invalidateJointCache]);
 
   // keep callback refs fresh so the continuous RAF loop never drops frames
   const onFrameRef = useRef(onFrame);
@@ -71,6 +95,7 @@ export default function CameraView({
 
     async function startCamera() {
       try {
+        invalidateJointCache();
         stream = await navigator.mediaDevices.getUserMedia({
           video: {
             width: { ideal: 1280, min: 640 },
@@ -94,7 +119,7 @@ export default function CameraView({
     return () => {
       stream?.getTracks().forEach((t) => t.stop());
     };
-  }, []);
+  }, [invalidateJointCache]);
 
   // permanent, continuous render loop
   useEffect(() => {
@@ -122,6 +147,7 @@ export default function CameraView({
         ) {
           canvas.width = video.videoWidth;
           canvas.height = video.videoHeight;
+          invalidateJointCache();
         }
 
         const ctx = canvas.getContext("2d");
@@ -135,11 +161,17 @@ export default function CameraView({
           // process frame through mediapipe wasm with deterministic isFrontal mode
           const state = engineRef.current.processFrame(video, now, isFrontalRef.current);
 
-          // update last-known valid high-confidence landmark positions
+          // update last-known valid high-confidence landmark positions with timestamps
           if (state?.normalizedLandmarks && !inFlightRef.current) {
             state.normalizedLandmarks.forEach((lm, idx) => {
-              if (lm && (lm.visibility === undefined || lm.visibility >= 0.6)) {
-                lastKnownJointsRef.current[idx] = { x: lm.x, y: lm.y };
+              const vis = lm.visibility ?? 1.0;
+              if (vis >= 0.6) {
+                lastKnownJointsRef.current[idx] = {
+                  x: lm.x,
+                  y: lm.y,
+                  visibility: vis,
+                  timestamp: now,
+                };
               }
             });
 
@@ -173,27 +205,87 @@ export default function CameraView({
                     const anchors: { left?: { x: number; y: number }; right?: { x: number; y: number } } = {};
                     const limbs: { left?: { x: number; y: number }[]; right?: { x: number; y: number }[] } = {};
 
-                    const lm = lastKnownJointsRef.current;
-
                     for (const side of sidesToTrack) {
                       const kneeIdx = side === "right" ? 26 : 25;
                       const [h, a] = side === "right" ? [24, 28] : [23, 27];
-                      const anchorPoint =
-                        lm[kneeIdx] ??
-                        state.normalizedLandmarks[kneeIdx] ??
-                        { x: side === "right" ? 0.6 : 0.4, y: 0.5 };
-                      anchors[side] = anchorPoint;
-                      limbs[side] = [lm[h], anchorPoint, lm[a]].filter(
-                        (p): p is { x: number; y: number } => Boolean(p)
-                      );
+
+                      // 1. Prefer current reliable MediaPipe knee observation
+                      const currentLm = state.normalizedLandmarks[kneeIdx];
+                      let selectedAnchor: { x: number; y: number } | null = null;
+                      let source = "none";
+                      let confidence = 0;
+                      let ageMs = 0;
+
+                      if (currentLm && (currentLm.visibility === undefined || currentLm.visibility >= 0.6)) {
+                        selectedAnchor = { x: currentLm.x, y: currentLm.y };
+                        source = "current MediaPipe";
+                        confidence = currentLm.visibility ?? 1.0;
+                        ageMs = 0;
+                      } else {
+                        // 2. Otherwise, check recent cached knee coordinate (<= 150ms)
+                        const cached = lastKnownJointsRef.current[kneeIdx];
+                        if (cached) {
+                          const age = now - cached.timestamp;
+                          if (age <= 150) {
+                            selectedAnchor = { x: cached.x, y: cached.y };
+                            source = "cached";
+                            confidence = cached.visibility;
+                            ageMs = Math.round(age);
+                          }
+                        }
+                      }
+
+                      // 3. Register valid anchor or log diagnostic skip
+                      if (selectedAnchor) {
+                        anchors[side] = selectedAnchor;
+
+                        const hipPt = state.normalizedLandmarks[h]
+                          ? { x: state.normalizedLandmarks[h].x, y: state.normalizedLandmarks[h].y }
+                          : lastKnownJointsRef.current[h]
+                            ? { x: lastKnownJointsRef.current[h].x, y: lastKnownJointsRef.current[h].y }
+                            : undefined;
+
+                        const anklePt = state.normalizedLandmarks[a]
+                          ? { x: state.normalizedLandmarks[a].x, y: state.normalizedLandmarks[a].y }
+                          : lastKnownJointsRef.current[a]
+                            ? { x: lastKnownJointsRef.current[a].x, y: lastKnownJointsRef.current[a].y }
+                            : undefined;
+
+                        limbs[side] = [hipPt, selectedAnchor, anklePt].filter(
+                          (p): p is { x: number; y: number } => Boolean(p)
+                        );
+
+                        console.log(`[CameraView:INIT_ANCHOR] ACCEPTED ${side} knee:`, {
+                          side,
+                          anchor: { x: Number(selectedAnchor.x.toFixed(4)), y: Number(selectedAnchor.y.toFixed(4)) },
+                          source,
+                          confidence: Number(confidence.toFixed(2)),
+                          age: `${ageMs}ms`,
+                          frameDimensions: `${video.videoWidth}x${video.videoHeight}`,
+                          status: "ACCEPTED",
+                        });
+                      } else {
+                        console.warn(`[CameraView:INIT_ANCHOR] SKIPPED ${side} knee (no valid or fresh observation <= 150ms):`, {
+                          side,
+                          source: "none",
+                          status: "SKIPPED",
+                          frameDimensions: `${video.videoWidth}x${video.videoHeight}`,
+                        });
+                      }
                     }
 
-                    slamTrackerRef.current.initAnchor(evt.imageBitmap, anchors, limbs);
+                    // 4. Only initialize if at least one valid anchor was found
+                    if (Object.keys(anchors).length > 0) {
+                      slamTrackerRef.current.initAnchor(evt.imageBitmap, anchors, limbs);
+                    } else {
+                      console.warn("[CameraView:INIT_ANCHOR] Optical-flow initialization skipped: no valid knee anchors available");
+                    }
                   } else {
                     slamTrackerRef.current.trackFrame(evt.imageBitmap);
                   }
                 } else if (!evt.triggered && slamTrackerRef.current.isTrackingRef.current) {
                   slamTrackerRef.current.resetTracker();
+                  invalidateJointCache();
                 }
               })
               .finally(() => {

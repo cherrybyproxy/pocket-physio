@@ -90,10 +90,15 @@ export async function checkConfidenceAndTriggerFallback(
                     : "right leg";
 
         try {
-            // create zero-copy transferable frame from video DOM element
+            // create zero-copy transferable frame from video DOM element preserving natural aspect ratio
+            const resizeWidth = 640;
+            const resizeHeight = videoElement.videoWidth > 0
+                ? Math.round((videoElement.videoHeight / videoElement.videoWidth) * resizeWidth)
+                : 360;
+
             const imageBitmap = await createImageBitmap(videoElement, {
-                resizeWidth: 640,
-                resizeHeight: 360,
+                resizeWidth,
+                resizeHeight,
             });
 
             return {
