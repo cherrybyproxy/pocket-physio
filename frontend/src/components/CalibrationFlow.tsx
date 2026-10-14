@@ -8,6 +8,7 @@ import { KinematicsTracker } from "../engine/kinematicsTracker";
 import CameraView from "./CameraView";
 import SessionSummary from "./SessionSummary";
 import ShortcutsModal from "./ShortcutsModal";
+import ModeSelectModal from "./ModeSelectModal";
 import { drawHudText, drawTargetArcGauge } from "../engine/drawUtils";
 
 type TrackingMode = "watcher" | "trainer";
@@ -443,14 +444,7 @@ export default function CalibrationFlow() {
       const rightX = Math.round(_width / 2 + 24);
 
       if (state === "mode_select") {
-        drawHudText(
-          ctx,
-          "Select Auto (Frontal) or Manual (Side-on)",
-          leftX,
-          y,
-          "#ffffff",
-          fontSize
-        );
+        // Presented in welcome pop-up modal; no canvas HUD text needed
       } else if (state === "auto_calibrate_countdown") {
         const elapsed = (performance.now() - countdownStart.current) / 1000;
         const remaining = Math.max(0, Math.ceil(CALIB_DELAY - elapsed));
@@ -980,28 +974,8 @@ export default function CalibrationFlow() {
       {/* on-screen action bar for reliable peripheral & touch control */}
       <div className="session-controls glass-card">
         {state === "mode_select" && (
-          <div className="control-button-group">
-            <button
-              id="auto-calib-btn"
-              className="btn btn-primary"
-              onClick={startAutoCalib}
-            >
-              Auto Calibration [A]
-            </button>
-            <button
-              id="manual-calib-btn"
-              className="btn btn-secondary"
-              onClick={startManualCalib}
-            >
-              Manual Calibration [M]
-            </button>
-            <button
-              id="shortcuts-btn"
-              className="btn btn-secondary"
-              onClick={() => setShowShortcutsModal(true)}
-            >
-              Shortcuts [?]
-            </button>
+          <div className="control-info">
+            <span>Select calibration mode to start</span>
           </div>
         )}
 
@@ -1320,6 +1294,14 @@ export default function CalibrationFlow() {
 
         {showShortcutsModal && (
           <ShortcutsModal onClose={() => setShowShortcutsModal(false)} />
+        )}
+
+        {state === "mode_select" && (
+          <ModeSelectModal
+            onSelectAuto={startAutoCalib}
+            onSelectManual={startManualCalib}
+            onOpenShortcuts={() => setShowShortcutsModal(true)}
+          />
         )}
       </div>
     </div>
