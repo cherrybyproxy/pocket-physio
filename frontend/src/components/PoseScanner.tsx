@@ -37,23 +37,25 @@ export async function checkConfidenceAndTriggerFallback(
         return { triggered: true, joint: "both legs", sidesToTrack: ["left", "right"], confidence: 0 };
     }
 
-    const LEFT_LEG_JOINTS = new Set([23, 25, 27]);
-    const RIGHT_LEG_JOINTS = new Set([24, 26, 28]);
+    const LEFT_KNEE = 25;
+    const RIGHT_KNEE = 26;
+    const LEFT_HIP = 23;
+    const RIGHT_HIP = 24;
 
     let lowestLeftConf = 1.0;
     let lowestRightConf = 1.0;
     let hasLeftFailure = false;
     let hasRightFailure = false;
 
-    // evaluate confidence across all target joints
+    // evaluate confidence: optical-flow fallback is reserved for knee occlusion/loss
     for (const idx of indices) {
         const targetLm = landmarks[idx] as (NormalizedLandmark & { presence?: number }) | undefined;
         if (!targetLm) {
-            if (LEFT_LEG_JOINTS.has(idx)) {
+            if (idx === LEFT_KNEE || idx === LEFT_HIP) {
                 hasLeftFailure = true;
                 lowestLeftConf = 0;
             }
-            if (RIGHT_LEG_JOINTS.has(idx)) {
+            if (idx === RIGHT_KNEE || idx === RIGHT_HIP) {
                 hasRightFailure = true;
                 lowestRightConf = 0;
             }
@@ -64,13 +66,20 @@ export async function checkConfidenceAndTriggerFallback(
         const presence = targetLm.presence !== undefined ? targetLm.presence : visibility;
         const confidence = Math.min(visibility, presence);
 
-        if (LEFT_LEG_JOINTS.has(idx)) {
+        if (idx === LEFT_KNEE) {
             lowestLeftConf = Math.min(lowestLeftConf, confidence);
             if (confidence < VISIBILITY_THRESHOLD) hasLeftFailure = true;
+        } else if (idx === LEFT_HIP) {
+            lowestLeftConf = Math.min(lowestLeftConf, confidence);
+            if (confidence < 0.3) hasLeftFailure = true;
         }
-        if (RIGHT_LEG_JOINTS.has(idx)) {
+
+        if (idx === RIGHT_KNEE) {
             lowestRightConf = Math.min(lowestRightConf, confidence);
             if (confidence < VISIBILITY_THRESHOLD) hasRightFailure = true;
+        } else if (idx === RIGHT_HIP) {
+            lowestRightConf = Math.min(lowestRightConf, confidence);
+            if (confidence < 0.3) hasRightFailure = true;
         }
     }
 

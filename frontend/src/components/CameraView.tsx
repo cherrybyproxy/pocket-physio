@@ -177,10 +177,10 @@ export default function CameraView({
 
             const targetJoints =
               filterSideRef.current === "left"
-                ? [23, 25, 27]
+                ? [23, 25]
                 : filterSideRef.current === "right"
-                  ? [24, 26, 28]
-                  : [23, 24, 25, 26, 27, 28];
+                  ? [24, 26]
+                  : [23, 24, 25, 26];
 
             inFlightRef.current = true;
             checkConfidenceAndTriggerFallback(state.normalizedLandmarks, targetJoints, video)
