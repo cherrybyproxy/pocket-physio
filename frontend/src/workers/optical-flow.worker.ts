@@ -141,6 +141,8 @@ const getMedian = (arr: number[]): number => {
     return s[s.length >> 1];
 };
 
+let currentSessionId = 0;
+
 self.onmessage = async (event: MessageEvent<any>) => {
     const message = event.data;
 
@@ -152,13 +154,17 @@ self.onmessage = async (event: MessageEvent<any>) => {
         self.postMessage({
             type: "ERROR",
             message: "opencv.js is not yet initialized",
+            sessionId: message?.sessionId ?? currentSessionId,
         } as WorkerErrorResult);
         return;
     }
 
     switch (message.type) {
         case "INIT_ANCHOR": {
-            const { frame, anchors } = message as { frame: ImageBitmap; anchors: SideAnchors };
+            const { frame, anchors, sessionId } = message as { frame: ImageBitmap; anchors: SideAnchors; sessionId?: number };
+            if (typeof sessionId === "number") {
+                currentSessionId = sessionId;
+            }
             try {
                 resetMemoryState();
 
@@ -205,12 +211,14 @@ self.onmessage = async (event: MessageEvent<any>) => {
                     points: resultPoints,
                     trackingQuality: 1.0,
                     status: "TRACKING",
+                    sessionId: currentSessionId,
                 });
             } catch (err: any) {
                 console.error("[OpticalFlowWorker] failed to initialize anchor:", err);
                 self.postMessage({
                     type: "ERROR",
                     message: err?.message ?? "failed to initialize tracking anchor",
+                    sessionId: currentSessionId,
                 } as WorkerErrorResult);
             } finally {
                 frame.close();
@@ -219,7 +227,12 @@ self.onmessage = async (event: MessageEvent<any>) => {
         }
 
         case "TRACK_FRAME": {
-            const { frame } = message;
+            const { frame, sessionId } = message;
+            if (typeof sessionId === "number" && sessionId !== currentSessionId) {
+                // Obsolete frame from previous session
+                frame.close();
+                return;
+            }
             try {
                 if (!prevGrayMat || (!trackers.left && !trackers.right)) {
                     self.postMessage({
@@ -227,6 +240,7 @@ self.onmessage = async (event: MessageEvent<any>) => {
                         points: {},
                         trackingQuality: 0,
                         status: "LOST",
+                        sessionId: currentSessionId,
                     });
                     return;
                 }
@@ -570,6 +584,7 @@ self.onmessage = async (event: MessageEvent<any>) => {
                     points: resultPoints,
                     trackingQuality: hasTracking ? 1.0 : 0.0,
                     status: globalStatus,
+                    sessionId: currentSessionId,
                     debug: debugLogs
                 });
             } catch (err: any) {
@@ -577,6 +592,7 @@ self.onmessage = async (event: MessageEvent<any>) => {
                 self.postMessage({
                     type: "ERROR",
                     message: err?.message ?? "optical flow frame tracking failed",
+                    sessionId: currentSessionId,
                 } as WorkerErrorResult);
             } finally {
                 frame.close();
@@ -585,6 +601,12 @@ self.onmessage = async (event: MessageEvent<any>) => {
         }
 
         case "RESET": {
+            const { sessionId } = message;
+            if (typeof sessionId === "number") {
+                currentSessionId = sessionId;
+            } else {
+                currentSessionId++;
+            }
             resetMemoryState();
             break;
         }

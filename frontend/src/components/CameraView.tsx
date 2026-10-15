@@ -67,7 +67,7 @@ export default function CameraView({
     if (prevIsActiveRef.current !== isActive) {
       prevIsActiveRef.current = isActive;
       invalidateJointCache();
-      if (slamTrackerRef.current.isTrackingRef.current) {
+      if (slamTrackerRef.current.hasActiveTracker()) {
         slamTrackerRef.current.resetTracker();
       }
     }
@@ -197,7 +197,7 @@ export default function CameraView({
                 });
 
                 if (evt.triggered && evt.imageBitmap) {
-                  if (!slamTrackerRef.current.isTrackingRef.current) {
+                  if (!slamTrackerRef.current.hasActiveTracker()) {
                     const sidesToTrack = evt.sidesToTrack && evt.sidesToTrack.length > 0
                       ? evt.sidesToTrack
                       : ["left" as const, "right" as const];
@@ -279,11 +279,12 @@ export default function CameraView({
                       slamTrackerRef.current.initAnchor(evt.imageBitmap, anchors, limbs);
                     } else {
                       console.warn("[CameraView:INIT_ANCHOR] Optical-flow initialization skipped: no valid knee anchors available");
+                      evt.imageBitmap.close();
                     }
                   } else {
                     slamTrackerRef.current.trackFrame(evt.imageBitmap);
                   }
-                } else if (!evt.triggered && slamTrackerRef.current.isTrackingRef.current) {
+                } else if (!evt.triggered && slamTrackerRef.current.hasActiveTracker()) {
                   slamTrackerRef.current.resetTracker();
                   invalidateJointCache();
                 }
@@ -312,8 +313,11 @@ export default function CameraView({
           }
           ctx.restore();
 
-          // draw SLAM optical flow target crosshairs matching side colors when tracking
-          if (slamTrackerRef.current.isTracking && slamTrackerRef.current.trackedPoints) {
+          // draw SLAM optical flow target crosshairs matching side colors when tracking or recovering
+          const isTrackingOrUncertain =
+            slamTrackerRef.current.lifecycle === "TRACKING" ||
+            slamTrackerRef.current.lifecycle === "UNCERTAIN";
+          if (isTrackingOrUncertain && slamTrackerRef.current.trackedPoints) {
             const pts = slamTrackerRef.current.trackedPoints;
             if (pts.left) {
               drawSlamAnchorCrosshair(ctx, pts.left, canvas.width, canvas.height, "left");
