@@ -24,6 +24,8 @@ interface SideTracker {
     trustedAnchor: { x: number; y: number };
     uncertainFrames: number;
     state: "TRACKING" | "UNCERTAIN" | "LOST";
+    lastDeltaX: number;
+    lastDeltaY: number;
 }
 
 let prevGrayMat: any = null;
@@ -86,26 +88,49 @@ function resetMemoryState() {
     }
 }
 
-function extractFeaturesLocal(grayMat: any, anchor: { x: number; y: number }, width: number, height: number): any {
+function extractFeaturesLocal(
+    grayMat: any,
+    anchor: { x: number; y: number },
+    width: number,
+    height: number
+): any {
     const mask = cv.Mat.zeros(height, width, cv.CV_8UC1);
-    const P = new cv.Point(Math.round(anchor.x * width), Math.round(anchor.y * height));
 
-    // initialize Shi-Tomasi features inside a strict knee-centered ROI
-    cv.circle(mask, P, 35, new cv.Scalar(255), -1);
+    const P = new cv.Point(
+        Math.round(anchor.x * width),
+        Math.round(anchor.y * height)
+    );
+
+    // Strict knee-centered ROI
+    cv.circle(
+        mask,
+        P,
+        35,
+        new cv.Scalar(255),
+        -1
+    );
 
     const corners = new cv.Mat();
-    cv.goodFeaturesToTrack(grayMat, corners, 50, 0.01, 5, mask);
+
+    cv.goodFeaturesToTrack(
+        grayMat,
+        corners,
+        50,
+        0.01,
+        5,
+        mask
+    );
+
     mask.delete();
 
     if (corners.rows > 0) {
         return corners;
-    } else {
-        corners.delete();
-        const fallback = new cv.Mat(1, 1, cv.CV_32FC2);
-        fallback.data32F[0] = Math.round(anchor.x * width);
-        fallback.data32F[1] = Math.round(anchor.y * height);
-        return fallback;
     }
+
+    // Return an empty Mat when no points are found so optical-flow functions receive a valid structure.
+    corners.delete();
+
+    return new cv.Mat(0, 1, cv.CV_32FC2);
 }
 
 const getMedian = (arr: number[]): number => {
@@ -113,6 +138,8 @@ const getMedian = (arr: number[]): number => {
     const s = [...arr].sort((a, b) => a - b);
     return s[s.length >> 1];
 };
+
+let currentSessionId = 0;
 
 self.onmessage = async (event: MessageEvent<any>) => {
     const message = event.data;
@@ -125,13 +152,17 @@ self.onmessage = async (event: MessageEvent<any>) => {
         self.postMessage({
             type: "ERROR",
             message: "opencv.js is not yet initialized",
+            sessionId: message?.sessionId ?? currentSessionId,
         } as WorkerErrorResult);
         return;
     }
 
     switch (message.type) {
         case "INIT_ANCHOR": {
-            const { frame, anchors } = message as { frame: ImageBitmap; anchors: SideAnchors };
+            const { frame, anchors, sessionId } = message as { frame: ImageBitmap; anchors: SideAnchors; sessionId?: number };
+            if (typeof sessionId === "number") {
+                currentSessionId = sessionId;
+            }
             try {
                 resetMemoryState();
 
@@ -164,7 +195,9 @@ self.onmessage = async (event: MessageEvent<any>) => {
                         patchSize,
                         trustedAnchor: { x: anchor.x, y: anchor.y },
                         uncertainFrames: 0,
-                        state: "TRACKING"
+                        state: "TRACKING",
+                        lastDeltaX: 0,
+                        lastDeltaY: 0
                     };
                     resultPoints[side] = { x: anchor.x, y: anchor.y };
                 }
@@ -176,12 +209,14 @@ self.onmessage = async (event: MessageEvent<any>) => {
                     points: resultPoints,
                     trackingQuality: 1.0,
                     status: "TRACKING",
+                    sessionId: currentSessionId,
                 });
             } catch (err: any) {
                 console.error("[OpticalFlowWorker] failed to initialize anchor:", err);
                 self.postMessage({
                     type: "ERROR",
                     message: err?.message ?? "failed to initialize tracking anchor",
+                    sessionId: currentSessionId,
                 } as WorkerErrorResult);
             } finally {
                 frame.close();
@@ -190,7 +225,12 @@ self.onmessage = async (event: MessageEvent<any>) => {
         }
 
         case "TRACK_FRAME": {
-            const { frame } = message;
+            const { frame, sessionId } = message;
+            if (typeof sessionId === "number" && sessionId !== currentSessionId) {
+                // Obsolete frame from previous session
+                frame.close();
+                return;
+            }
             try {
                 if (!prevGrayMat || (!trackers.left && !trackers.right)) {
                     self.postMessage({
@@ -198,6 +238,7 @@ self.onmessage = async (event: MessageEvent<any>) => {
                         points: {},
                         trackingQuality: 0,
                         status: "LOST",
+                        sessionId: currentSessionId,
                     });
                     return;
                 }
@@ -226,10 +267,96 @@ self.onmessage = async (event: MessageEvent<any>) => {
                     const trustedPx = trk.trustedAnchor.x * width;
                     const trustedPy = trk.trustedAnchor.y * height;
 
-                    // lucas-kanade motion tracking
+                    // calculate bounded predicted search center for recovery
+                    let predDeltaX = 0;
+                    let predDeltaY = 0;
+
+                    // limit prediction to the first 3 uncertain frames and bound to 25px per-frame movement
+                    if (trk.uncertainFrames > 0 && trk.uncertainFrames <= 3) {
+                        const mag = Math.hypot(trk.lastDeltaX, trk.lastDeltaY);
+                        if (mag > 0) {
+                            const step = Math.min(mag, 25);
+                            predDeltaX = (trk.lastDeltaX / mag) * step;
+                            predDeltaY = (trk.lastDeltaY / mag) * step;
+                        }
+                    }
+
+                    const predictedPx = Math.max(0, Math.min(width, trustedPx + predDeltaX));
+                    const predictedPy = Math.max(0, Math.min(height, trustedPy + predDeltaY));
+
+                    // empty-feature recovery branch
+                    if (!trk.prevPtsMat || trk.prevPtsMat.rows === 0) {
+                        trk.state = "UNCERTAIN";
+                        trk.uncertainFrames++;
+
+                        if (trk.uncertainFrames > 15) {
+                            trk.state = "LOST";
+                        }
+
+                        if (trk.state === "LOST") {
+                            debugLogs[side] = {
+                                trustedAnchor: { x: trustedPx, y: trustedPy },
+                                candidateAnchor: { x: trustedPx, y: trustedPy },
+                                finalAnchor: { x: trustedPx, y: trustedPy },
+                                predictedAnchor: { x: predictedPx, y: predictedPy },
+                                totalLKPoints: 0,
+                                localLKPoints: 0,
+                                rejectedFarPoints: 0,
+                                templateScore: "0.00",
+                                templateDisplacement: "0.0",
+                                state: "LOST",
+                                rejectionReason: "NO_FEATURES",
+                                recoveryAttempted: false,
+                                recoveryFeatureCount: 0,
+                                recoveryAccepted: false,
+                                uncertainFrames: trk.uncertainFrames
+                            };
+
+                            if (trk.prevPtsMat) trk.prevPtsMat.delete();
+                            if (trk.templateMat) trk.templateMat.delete();
+                            delete trackers[side];
+                            continue;
+                        }
+
+                        // Remain uncertain and hold last trusted anchor
+                        resultPoints[side] = trk.trustedAnchor;
+                        hasUncertain = true;
+
+                        // attempt local feature redetection around predicted location
+                        const recoveryCenter = { x: predictedPx / width, y: predictedPy / height };
+                        const newPtsMat = extractFeaturesLocal(currGrayMat, recoveryCenter, width, height);
+                        const recoveryFeatureCount = newPtsMat.rows;
+
+                        if (trk.prevPtsMat) trk.prevPtsMat.delete();
+                        trk.prevPtsMat = newPtsMat;
+
+                        debugLogs[side] = {
+                            trustedAnchor: { x: trustedPx, y: trustedPy },
+                            candidateAnchor: { x: trustedPx, y: trustedPy },
+                            finalAnchor: { x: trustedPx, y: trustedPy },
+                            predictedAnchor: { x: predictedPx, y: predictedPy },
+                            totalLKPoints: 0,
+                            localLKPoints: 0,
+                            rejectedFarPoints: 0,
+                            templateScore: "0.00",
+                            templateDisplacement: "0.0",
+                            state: trk.state,
+                            rejectionReason: "NO_FEATURES",
+                            recoveryAttempted: true,
+                            recoveryFeatureCount,
+                            recoveryAccepted: false,
+                            uncertainFrames: trk.uncertainFrames
+                        };
+
+                        continue;
+                    }
+
+                    // lucas-kanade motion tracking mats allocated after zero-feature check
                     const nextPtsMat = new cv.Mat();
                     const statusMat = new cv.Mat();
                     const errMat = new cv.Mat();
+
+                    const wasUncertain = trk.state === "UNCERTAIN" || trk.uncertainFrames > 0;
 
                     cv.calcOpticalFlowPyrLK(prevGrayMat, currGrayMat, trk.prevPtsMat, nextPtsMat, statusMat, errMat, winSize, maxLevel, criteria);
 
@@ -291,9 +418,7 @@ self.onmessage = async (event: MessageEvent<any>) => {
                     const candidatePx = trustedPx + lkDeltaX;
                     const candidatePy = trustedPy + lkDeltaY;
 
-                    // appearance-based template matching
-                    // IMPORTANT: template matching is evidence only.
-                    // It cannot independently move the knee.
+                    // Template matching is evidence only; it cannot independently move the knee.
 
                     let templateScore = 0;
                     let templateDisp = 0;
@@ -302,7 +427,7 @@ self.onmessage = async (event: MessageEvent<any>) => {
                         const searchRadiusPx = 30;
                         const halfPatch = trk.patchSize / 2;
 
-                        // Use the current knee as the center, but keep the search LOCAL.
+                        // Use the current knee as the center, but keep the search local.
                         const centerX = trk.trustedAnchor.x * width;
                         const centerY = trk.trustedAnchor.y * height;
 
@@ -348,12 +473,21 @@ self.onmessage = async (event: MessageEvent<any>) => {
                     }
 
                     let finalAnchor = { ...trk.trustedAnchor };
+                    let recoveryAttempted = false;
+                    let recoveryFeatureCount = 0;
+                    let recoveryAccepted = false;
 
                     if (candidateAccepted) {
                         trk.trustedAnchor = { x: candidatePx / width, y: candidatePy / height };
                         trk.state = "TRACKING";
                         trk.uncertainFrames = 0;
+                        trk.lastDeltaX = lkDeltaX;
+                        trk.lastDeltaY = lkDeltaY;
                         finalAnchor = { ...trk.trustedAnchor };
+
+                        if (wasUncertain) {
+                            recoveryAccepted = true;
+                        }
 
                         const validPtsMat = new cv.Mat(goodIndices.length, 1, cv.CV_32FC2);
                         for (let idx = 0; idx < goodIndices.length; idx++) {
@@ -366,20 +500,24 @@ self.onmessage = async (event: MessageEvent<any>) => {
                     } else {
                         trk.state = "UNCERTAIN";
                         trk.uncertainFrames++;
-                        // DO NOT move trusted anchor
+                        // Keep trusted anchor stationary when motion is rejected
 
                         if (localLKPoints < minLocalPoints) {
                             // Only redetect local features when the existing local feature count genuinely falls below threshold
+                            recoveryAttempted = true;
+                            const recoveryCenter = { x: predictedPx / width, y: predictedPy / height };
+                            const newPtsMat = extractFeaturesLocal(currGrayMat, recoveryCenter, width, height);
+                            recoveryFeatureCount = newPtsMat.rows;
                             trk.prevPtsMat.delete();
-                            trk.prevPtsMat = extractFeaturesLocal(currGrayMat, trk.trustedAnchor, width, height);
+                            trk.prevPtsMat = newPtsMat;
                         } else {
                             // Do not continuously replace the feature set unless there is a genuine feature-loss condition.
                             // The points were rejected for excessive motion, but might be valid. Retain their previous locations.
                             const validPtsMat = new cv.Mat(goodIndices.length, 1, cv.CV_32FC2);
                             for (let idx = 0; idx < goodIndices.length; idx++) {
                                 const origIdx = goodIndices[idx];
-                                validPtsMat.data32F[idx * 2] = trk.prevPtsMat.data32F[origIdx * 2];
-                                validPtsMat.data32F[idx * 2 + 1] = trk.prevPtsMat.data32F[origIdx * 2 + 1];
+                                validPtsMat.data32F[idx * 2] = nextPtsMat.data32F[origIdx * 2];
+                                validPtsMat.data32F[idx * 2 + 1] = nextPtsMat.data32F[origIdx * 2 + 1];
                             }
                             trk.prevPtsMat.delete();
                             trk.prevPtsMat = validPtsMat;
@@ -402,13 +540,18 @@ self.onmessage = async (event: MessageEvent<any>) => {
                         trustedAnchor: { x: trustedPx, y: trustedPy },
                         candidateAnchor: { x: candidatePx, y: candidatePy },
                         finalAnchor: { x: finalAnchor.x * width, y: finalAnchor.y * height },
+                        predictedAnchor: { x: predictedPx, y: predictedPy },
                         totalLKPoints: numPoints,
                         localLKPoints,
                         rejectedFarPoints,
                         templateScore: templateScore.toFixed(2),
                         templateDisplacement: templateDisp.toFixed(1),
                         state: trk.state,
-                        rejectionReason: rejectionReason || "NONE"
+                        rejectionReason: rejectionReason || "NONE",
+                        recoveryAttempted,
+                        recoveryFeatureCount,
+                        recoveryAccepted,
+                        uncertainFrames: trk.uncertainFrames
                     };
 
                     if (trk.state === "LOST") {
@@ -425,9 +568,7 @@ self.onmessage = async (event: MessageEvent<any>) => {
                 prevGrayMat.delete();
                 prevGrayMat = currGrayMat;
 
-                console.log("[OpticalFlowWorker]", debugLogs);
-
-                // UNCERTAIN should not be counted as successful TRACKING
+                // An uncertain state should not be counted as active tracking
                 let globalStatus = "LOST";
                 if (hasTracking) globalStatus = "TRACKING";
                 else if (hasUncertain) globalStatus = "UNCERTAIN";
@@ -437,6 +578,7 @@ self.onmessage = async (event: MessageEvent<any>) => {
                     points: resultPoints,
                     trackingQuality: hasTracking ? 1.0 : 0.0,
                     status: globalStatus,
+                    sessionId: currentSessionId,
                     debug: debugLogs
                 });
             } catch (err: any) {
@@ -444,6 +586,7 @@ self.onmessage = async (event: MessageEvent<any>) => {
                 self.postMessage({
                     type: "ERROR",
                     message: err?.message ?? "optical flow frame tracking failed",
+                    sessionId: currentSessionId,
                 } as WorkerErrorResult);
             } finally {
                 frame.close();
@@ -452,6 +595,12 @@ self.onmessage = async (event: MessageEvent<any>) => {
         }
 
         case "RESET": {
+            const { sessionId } = message;
+            if (typeof sessionId === "number") {
+                currentSessionId = sessionId;
+            } else {
+                currentSessionId++;
+            }
             resetMemoryState();
             break;
         }

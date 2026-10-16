@@ -1,7 +1,7 @@
 // core component: acquires webcam, runs mediapipe continuously, and renders
 // the skeleton overlay + hud on an html5 canvas stacked on top of the video.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import type { PoseEngine, PoseState } from "../engine/poseEngine";
 import { useOpticalFlowTracker } from "../hooks/useOpticalFlowTracker";
 import { drawSkeleton, drawSlamAnchorCrosshair } from "../engine/drawUtils";
@@ -28,6 +28,13 @@ interface CameraViewProps {
   onCanvasClick?: () => void;
 }
 
+interface CachedJoint {
+  x: number;
+  y: number;
+  visibility: number;
+  timestamp: number;
+}
+
 export default function CameraView({
   engine,
   isFrontal,
@@ -46,8 +53,25 @@ export default function CameraView({
   const slamTrackerRef = useRef(slamTracker);
   slamTrackerRef.current = slamTracker;
 
-  const lastKnownJointsRef = useRef<Record<number, { x: number; y: number }>>({});
+  const lastKnownJointsRef = useRef<Record<number, CachedJoint>>({});
   const inFlightRef = useRef(false);
+
+  // invalidate cached joint coordinates
+  const invalidateJointCache = useCallback(() => {
+    lastKnownJointsRef.current = {};
+  }, []);
+
+  // clear cached coordinates when session or calibration resets
+  const prevIsActiveRef = useRef(isActive);
+  useEffect(() => {
+    if (prevIsActiveRef.current !== isActive) {
+      prevIsActiveRef.current = isActive;
+      invalidateJointCache();
+      if (slamTrackerRef.current.hasActiveTracker()) {
+        slamTrackerRef.current.resetTracker();
+      }
+    }
+  }, [isActive, invalidateJointCache]);
 
   // keep callback refs fresh so the continuous RAF loop never drops frames
   const onFrameRef = useRef(onFrame);
@@ -71,6 +95,7 @@ export default function CameraView({
 
     async function startCamera() {
       try {
+        invalidateJointCache();
         stream = await navigator.mediaDevices.getUserMedia({
           video: {
             width: { ideal: 1280, min: 640 },
@@ -94,7 +119,7 @@ export default function CameraView({
     return () => {
       stream?.getTracks().forEach((t) => t.stop());
     };
-  }, []);
+  }, [invalidateJointCache]);
 
   // permanent, continuous render loop
   useEffect(() => {
@@ -122,6 +147,7 @@ export default function CameraView({
         ) {
           canvas.width = video.videoWidth;
           canvas.height = video.videoHeight;
+          invalidateJointCache();
         }
 
         const ctx = canvas.getContext("2d");
@@ -135,20 +161,26 @@ export default function CameraView({
           // process frame through mediapipe wasm with deterministic isFrontal mode
           const state = engineRef.current.processFrame(video, now, isFrontalRef.current);
 
-          // update last-known valid high-confidence landmark positions
+          // update last-known valid high-confidence landmark positions with timestamps
           if (state?.normalizedLandmarks && !inFlightRef.current) {
             state.normalizedLandmarks.forEach((lm, idx) => {
-              if (lm && (lm.visibility === undefined || lm.visibility >= 0.6)) {
-                lastKnownJointsRef.current[idx] = { x: lm.x, y: lm.y };
+              const vis = lm.visibility ?? 1.0;
+              if (vis >= 0.6) {
+                lastKnownJointsRef.current[idx] = {
+                  x: lm.x,
+                  y: lm.y,
+                  visibility: vis,
+                  timestamp: now,
+                };
               }
             });
 
             const targetJoints =
               filterSideRef.current === "left"
-                ? [23, 25, 27]
+                ? [23, 25]
                 : filterSideRef.current === "right"
-                  ? [24, 26, 28]
-                  : [23, 24, 25, 26, 27, 28];
+                  ? [24, 26]
+                  : [23, 24, 25, 26];
 
             inFlightRef.current = true;
             checkConfidenceAndTriggerFallback(state.normalizedLandmarks, targetJoints, video)
@@ -165,7 +197,7 @@ export default function CameraView({
                 });
 
                 if (evt.triggered && evt.imageBitmap) {
-                  if (!slamTrackerRef.current.isTrackingRef.current) {
+                  if (!slamTrackerRef.current.hasActiveTracker()) {
                     const sidesToTrack = evt.sidesToTrack && evt.sidesToTrack.length > 0
                       ? evt.sidesToTrack
                       : ["left" as const, "right" as const];
@@ -173,27 +205,87 @@ export default function CameraView({
                     const anchors: { left?: { x: number; y: number }; right?: { x: number; y: number } } = {};
                     const limbs: { left?: { x: number; y: number }[]; right?: { x: number; y: number }[] } = {};
 
-                    const lm = lastKnownJointsRef.current;
-
                     for (const side of sidesToTrack) {
                       const kneeIdx = side === "right" ? 26 : 25;
                       const [h, a] = side === "right" ? [24, 28] : [23, 27];
-                      const anchorPoint =
-                        lm[kneeIdx] ??
-                        state.normalizedLandmarks[kneeIdx] ??
-                        { x: side === "right" ? 0.6 : 0.4, y: 0.5 };
-                      anchors[side] = anchorPoint;
-                      limbs[side] = [lm[h], anchorPoint, lm[a]].filter(
-                        (p): p is { x: number; y: number } => Boolean(p)
-                      );
+
+                      // prefer current reliable MediaPipe knee observation
+                      const currentLm = state.normalizedLandmarks[kneeIdx];
+                      let selectedAnchor: { x: number; y: number } | null = null;
+                      let source = "none";
+                      let confidence = 0;
+                      let ageMs = 0;
+
+                      if (currentLm && (currentLm.visibility === undefined || currentLm.visibility >= 0.6)) {
+                        selectedAnchor = { x: currentLm.x, y: currentLm.y };
+                        source = "current MediaPipe";
+                        confidence = currentLm.visibility ?? 1.0;
+                        ageMs = 0;
+                      } else {
+                        // fall back to recent cached knee coordinate (<= 150ms)
+                        const cached = lastKnownJointsRef.current[kneeIdx];
+                        if (cached) {
+                          const age = now - cached.timestamp;
+                          if (age <= 150) {
+                            selectedAnchor = { x: cached.x, y: cached.y };
+                            source = "cached";
+                            confidence = cached.visibility;
+                            ageMs = Math.round(age);
+                          }
+                        }
+                      }
+
+                      if (selectedAnchor) {
+                        anchors[side] = selectedAnchor;
+
+                        const hipPt = state.normalizedLandmarks[h]
+                          ? { x: state.normalizedLandmarks[h].x, y: state.normalizedLandmarks[h].y }
+                          : lastKnownJointsRef.current[h]
+                            ? { x: lastKnownJointsRef.current[h].x, y: lastKnownJointsRef.current[h].y }
+                            : undefined;
+
+                        const anklePt = state.normalizedLandmarks[a]
+                          ? { x: state.normalizedLandmarks[a].x, y: state.normalizedLandmarks[a].y }
+                          : lastKnownJointsRef.current[a]
+                            ? { x: lastKnownJointsRef.current[a].x, y: lastKnownJointsRef.current[a].y }
+                            : undefined;
+
+                        limbs[side] = [hipPt, selectedAnchor, anklePt].filter(
+                          (p): p is { x: number; y: number } => Boolean(p)
+                        );
+
+                        console.log(`[CameraView] Initialized ${side} knee:`, {
+                          side,
+                          anchor: { x: Number(selectedAnchor.x.toFixed(4)), y: Number(selectedAnchor.y.toFixed(4)) },
+                          source,
+                          confidence: Number(confidence.toFixed(2)),
+                          age: `${ageMs}ms`,
+                          frameDimensions: `${video.videoWidth}x${video.videoHeight}`,
+                          status: "accepted",
+                        });
+                      } else {
+                        console.warn(`[CameraView] Skipped ${side} knee (no fresh observation <= 150ms):`, {
+                          side,
+                          source: "none",
+                          status: "skipped",
+                          frameDimensions: `${video.videoWidth}x${video.videoHeight}`,
+                        });
+                      }
                     }
 
-                    slamTrackerRef.current.initAnchor(evt.imageBitmap, anchors, limbs);
+                    // only initialize if at least one valid anchor was found
+                    if (Object.keys(anchors).length > 0) {
+                      slamTrackerRef.current.initAnchor(evt.imageBitmap, anchors, limbs);
+                    } else {
+                      console.warn("[CameraView] Optical flow initialization skipped: no valid knee anchors available");
+                      evt.imageBitmap.close();
+                    }
                   } else {
                     slamTrackerRef.current.trackFrame(evt.imageBitmap);
                   }
-                } else if (!evt.triggered && slamTrackerRef.current.isTrackingRef.current) {
+                } else if (!evt.triggered && slamTrackerRef.current.hasActiveTracker()) {
                   slamTrackerRef.current.resetTracker();
+                  invalidateJointCache();
                 }
               })
               .finally(() => {
@@ -220,8 +312,11 @@ export default function CameraView({
           }
           ctx.restore();
 
-          // draw SLAM optical flow target crosshairs matching side colors when tracking
-          if (slamTrackerRef.current.isTracking && slamTrackerRef.current.trackedPoints) {
+          // draw SLAM optical flow target crosshairs matching side colors when tracking or recovering
+          const isTrackingOrUncertain =
+            slamTrackerRef.current.lifecycle === "TRACKING" ||
+            slamTrackerRef.current.lifecycle === "UNCERTAIN";
+          if (isTrackingOrUncertain && slamTrackerRef.current.trackedPoints) {
             const pts = slamTrackerRef.current.trackedPoints;
             if (pts.left) {
               drawSlamAnchorCrosshair(ctx, pts.left, canvas.width, canvas.height, "left");

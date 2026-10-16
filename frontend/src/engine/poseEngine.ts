@@ -71,16 +71,20 @@ function getAngle2d(a: Vec3, b: Vec3, c: Vec3): number {
   return Math.max(0, Math.min(180, 180 - internalAngle));
 }
 
-// check visibility from normalized landmarks array (matching PoseScanner.tsx)
-function landmarksVisible(
-  ...lms: (NormalizedLandmark | undefined)[]
+// check leg visibility: hip and knee must have high visibility;
+// ankle is accepted if finite even if cropped at frame boundary
+function isLegTrackingValid(
+  hip?: NormalizedLandmark,
+  knee?: NormalizedLandmark,
+  ankle?: NormalizedLandmark
 ): boolean {
-  return lms.every((lm) => {
-    if (!lm) return false;
-    // if visibility is undefined, treat as 1.0 (visible)
-    const v = lm.visibility !== undefined ? lm.visibility : 1.0;
-    return v >= VISIBILITY_THRESHOLD;
-  });
+  if (!hip || !knee) return false;
+  const hipVis = hip.visibility !== undefined ? hip.visibility : 1.0;
+  const kneeVis = knee.visibility !== undefined ? knee.visibility : 1.0;
+  if (hipVis < VISIBILITY_THRESHOLD || kneeVis < VISIBILITY_THRESHOLD) return false;
+
+  // Ankle must exist and have finite coordinates so the shin vector is defined
+  return Boolean(ankle && Number.isFinite(ankle.x) && Number.isFinite(ankle.y));
 }
 
 // apply exponential moving average (matching calibration.py apply_ema)
@@ -229,9 +233,9 @@ export class PoseEngine {
     // auto-detect frontal mode if not explicitly passed
     const frontal = isFrontal !== undefined ? isFrontal : nearSide === "unknown";
 
-    // per-leg visibility gate checked against normalized landmarks
-    const lVisible = landmarksVisible(normLHip, normLKnee, normLAnkle);
-    const rVisible = landmarksVisible(normRHip, normRKnee, normRAnkle);
+    // per-leg visibility gate: hip & knee visible, ankle coordinate finite (even if cropped)
+    const lVisible = isLegTrackingValid(normLHip, normLKnee, normLAnkle);
+    const rVisible = isLegTrackingValid(normRHip, normRKnee, normRAnkle);
 
     // 2D planar vectors from normalized image landmarks (0-1 coords)
     const normLHipVec: Vec3 = [normLHip.x, normLHip.y, 0];

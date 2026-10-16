@@ -55,7 +55,7 @@ export function drawSkeleton(
   ctx.lineJoin = "round";
   ctx.lineWidth = 3.5;
 
-  // 1. draw clean bone connections
+  // draw clean bone connections
   for (const conn of LOWER_BODY_CONNECTIONS) {
     const [i, j] = conn.pair;
 
@@ -81,7 +81,7 @@ export function drawSkeleton(
     ctx.stroke();
   }
 
-  // 2. draw joint dots only for relevant joints
+  // draw joint dots only for relevant joints
   for (const i of VISIBLE_JOINTS) {
     if (filterSide === "left" && !LEFT_JOINTS.has(i)) continue;
     if (filterSide === "right" && !RIGHT_JOINTS.has(i)) continue;
