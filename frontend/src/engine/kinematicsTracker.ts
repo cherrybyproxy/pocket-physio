@@ -145,7 +145,7 @@ export class KinematicsTracker {
       (this.maxAngle !== null && val > this.maxAngle);
     const angleColor = isViolated ? "#d21404" : "#0b6623";
 
-    // 1. calculate angular velocity (°/sec) (+ flexing, - extending)
+    // calculate angular velocity (°/sec) (+ flexing, - extending)
     if (this.lastAngle !== null && this.lastTimestampMs !== null) {
       const dt = (timestampMs - this.lastTimestampMs) / 1000;
       if (dt > 0.005 && dt < 1.0) {

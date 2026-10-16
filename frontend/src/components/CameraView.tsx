@@ -209,7 +209,7 @@ export default function CameraView({
                       const kneeIdx = side === "right" ? 26 : 25;
                       const [h, a] = side === "right" ? [24, 28] : [23, 27];
 
-                      // 1. Prefer current reliable MediaPipe knee observation
+                      // prefer current reliable MediaPipe knee observation
                       const currentLm = state.normalizedLandmarks[kneeIdx];
                       let selectedAnchor: { x: number; y: number } | null = null;
                       let source = "none";
@@ -222,7 +222,7 @@ export default function CameraView({
                         confidence = currentLm.visibility ?? 1.0;
                         ageMs = 0;
                       } else {
-                        // 2. Otherwise, check recent cached knee coordinate (<= 150ms)
+                        // fall back to recent cached knee coordinate (<= 150ms)
                         const cached = lastKnownJointsRef.current[kneeIdx];
                         if (cached) {
                           const age = now - cached.timestamp;
@@ -235,7 +235,6 @@ export default function CameraView({
                         }
                       }
 
-                      // 3. Register valid anchor or log diagnostic skip
                       if (selectedAnchor) {
                         anchors[side] = selectedAnchor;
 
@@ -255,30 +254,30 @@ export default function CameraView({
                           (p): p is { x: number; y: number } => Boolean(p)
                         );
 
-                        console.log(`[CameraView:INIT_ANCHOR] ACCEPTED ${side} knee:`, {
+                        console.log(`[CameraView] Initialized ${side} knee:`, {
                           side,
                           anchor: { x: Number(selectedAnchor.x.toFixed(4)), y: Number(selectedAnchor.y.toFixed(4)) },
                           source,
                           confidence: Number(confidence.toFixed(2)),
                           age: `${ageMs}ms`,
                           frameDimensions: `${video.videoWidth}x${video.videoHeight}`,
-                          status: "ACCEPTED",
+                          status: "accepted",
                         });
                       } else {
-                        console.warn(`[CameraView:INIT_ANCHOR] SKIPPED ${side} knee (no valid or fresh observation <= 150ms):`, {
+                        console.warn(`[CameraView] Skipped ${side} knee (no fresh observation <= 150ms):`, {
                           side,
                           source: "none",
-                          status: "SKIPPED",
+                          status: "skipped",
                           frameDimensions: `${video.videoWidth}x${video.videoHeight}`,
                         });
                       }
                     }
 
-                    // 4. Only initialize if at least one valid anchor was found
+                    // only initialize if at least one valid anchor was found
                     if (Object.keys(anchors).length > 0) {
                       slamTrackerRef.current.initAnchor(evt.imageBitmap, anchors, limbs);
                     } else {
-                      console.warn("[CameraView:INIT_ANCHOR] Optical-flow initialization skipped: no valid knee anchors available");
+                      console.warn("[CameraView] Optical flow initialization skipped: no valid knee anchors available");
                       evt.imageBitmap.close();
                     }
                   } else {

@@ -10,7 +10,7 @@ import type {
 export interface OpticalFlowState {
     isReady: boolean;
     lifecycle: TrackerLifecycle;
-    isTracking: boolean; // true when motion is actively accepted (TRACKING)
+    isTracking: boolean; // true when motion is actively accepted
     status: TrackingStatus | null;
     trackedPoints: SideAnchors;
     trackingQuality: number;
@@ -61,7 +61,7 @@ export function useOpticalFlowTracker() {
                 const response = event.data;
                 switch (response.type) {
                     case "OPENCV_READY":
-                        console.log("[useOpticalFlowTracker] OpenCV.js WebAssembly is READY!");
+                        console.log("[useOpticalFlowTracker] OpenCV.js is ready");
                         setState((prev) => ({ ...prev, isReady: true, error: null }));
                         break;
 
@@ -147,9 +147,9 @@ export function useOpticalFlowTracker() {
     const initAnchor = useCallback((frame: ImageBitmap, anchors: SideAnchors, limbs?: SideLimbs): boolean => {
         if (!workerRef.current) return false;
 
-        // Prevent duplicate INIT_ANCHOR messages while initialization is pending
+        // Prevent duplicate initialization messages while initialization is pending
         if (isInitPendingRef.current) {
-            console.warn("[useOpticalFlowTracker] INIT_ANCHOR skipped: initialization already pending");
+            console.warn("[useOpticalFlowTracker] Initialization skipped: already pending");
             return false;
         }
 
@@ -158,7 +158,7 @@ export function useOpticalFlowTracker() {
         const currentSession = sessionIdRef.current;
         isInitPendingRef.current = true;
 
-        console.log(`[useOpticalFlowTracker] INIT_ANCHOR requested (session ${currentSession})`, { anchors });
+        console.log(`[useOpticalFlowTracker] Anchor initialization requested (session ${currentSession})`, { anchors });
 
         try {
             // transfer ImageBitmap ownership to worker

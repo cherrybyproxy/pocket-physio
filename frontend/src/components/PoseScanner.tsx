@@ -27,12 +27,12 @@ export async function checkConfidenceAndTriggerFallback(
     const indices = Array.isArray(targetJointIndex) ? targetJointIndex : [targetJointIndex];
     const defaultJointName = indices.map((i) => JOINT_NAMES[i] ?? `joint ${i}`).join(" & ");
 
-    // 1. Guard against uninitialized video element
+    // Guard against uninitialized video element
     if (!videoElement || videoElement.videoWidth === 0 || videoElement.videoHeight === 0) {
         return { triggered: false, joint: defaultJointName, confidence: 0 };
     }
 
-    // 2. Guard against missing landmarks array (no pose detected in frame)
+    // Guard against missing landmarks array (no pose detected in frame)
     if (!landmarks || landmarks.length === 0) {
         return { triggered: true, joint: "both legs", sidesToTrack: ["left", "right"], confidence: 0 };
     }
@@ -85,7 +85,7 @@ export async function checkConfidenceAndTriggerFallback(
 
     const lowestConfidence = Math.min(lowestLeftConf, lowestRightConf);
 
-    // 3. Trigger fallback if any target joint drops below threshold (0.6)
+    // Trigger fallback if any target joint drops below threshold (0.6)
     if (hasLeftFailure || hasRightFailure) {
         const sidesToTrack: ("left" | "right")[] = [];
         if (hasLeftFailure) sidesToTrack.push("left");

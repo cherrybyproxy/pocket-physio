@@ -127,9 +127,7 @@ function extractFeaturesLocal(
         return corners;
     }
 
-    // IMPORTANT:
-    // Never return undefined. OpenCV optical-flow functions
-    // require a valid Mat even when there are zero points.
+    // Return an empty Mat when no points are found so optical-flow functions receive a valid structure.
     corners.delete();
 
     return new cv.Mat(0, 1, cv.CV_32FC2);
@@ -320,7 +318,7 @@ self.onmessage = async (event: MessageEvent<any>) => {
                             continue;
                         }
 
-                        // remain UNCERTAIN and hold last trusted anchor
+                        // Remain uncertain and hold last trusted anchor
                         resultPoints[side] = trk.trustedAnchor;
                         hasUncertain = true;
 
@@ -420,9 +418,7 @@ self.onmessage = async (event: MessageEvent<any>) => {
                     const candidatePx = trustedPx + lkDeltaX;
                     const candidatePy = trustedPy + lkDeltaY;
 
-                    // appearance-based template matching
-                    // IMPORTANT: template matching is evidence only.
-                    // It cannot independently move the knee.
+                    // Template matching is evidence only; it cannot independently move the knee.
 
                     let templateScore = 0;
                     let templateDisp = 0;
@@ -431,7 +427,7 @@ self.onmessage = async (event: MessageEvent<any>) => {
                         const searchRadiusPx = 30;
                         const halfPatch = trk.patchSize / 2;
 
-                        // Use the current knee as the center, but keep the search LOCAL.
+                        // Use the current knee as the center, but keep the search local.
                         const centerX = trk.trustedAnchor.x * width;
                         const centerY = trk.trustedAnchor.y * height;
 
@@ -504,7 +500,7 @@ self.onmessage = async (event: MessageEvent<any>) => {
                     } else {
                         trk.state = "UNCERTAIN";
                         trk.uncertainFrames++;
-                        // DO NOT move trusted anchor
+                        // Keep trusted anchor stationary when motion is rejected
 
                         if (localLKPoints < minLocalPoints) {
                             // Only redetect local features when the existing local feature count genuinely falls below threshold
@@ -572,9 +568,7 @@ self.onmessage = async (event: MessageEvent<any>) => {
                 prevGrayMat.delete();
                 prevGrayMat = currGrayMat;
 
-                console.log("[OpticalFlowWorker]", debugLogs);
-
-                // UNCERTAIN should not be counted as successful TRACKING
+                // An uncertain state should not be counted as active tracking
                 let globalStatus = "LOST";
                 if (hasTracking) globalStatus = "TRACKING";
                 else if (hasUncertain) globalStatus = "UNCERTAIN";
