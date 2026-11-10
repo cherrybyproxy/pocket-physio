@@ -63,7 +63,16 @@ export default function App() {
 
         <main className="main-content">
           <Routes>
-            <Route path="/" element={<CalibrationFlow />} />
+            <Route
+              path="/"
+              element={
+                <CalibrationFlow
+                  isShortcutsOpen={showShortcuts}
+                  onOpenShortcuts={() => setShowShortcuts(true)}
+                  onCloseShortcuts={() => setShowShortcuts(false)}
+                />
+              }
+            />
             <Route path="/history" element={<SessionHistory />} />
             <Route
               path="/login"

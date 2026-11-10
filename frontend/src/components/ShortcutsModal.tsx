@@ -40,9 +40,11 @@ export default function ShortcutsModal({ onClose }: ShortcutsModalProps) {
       <div
         className="glass-card shortcuts-modal"
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-labelledby="shortcuts-title"
       >
         <div className="shortcuts-modal-header">
-          <h3>Keyboard Shortcuts Manual</h3>
+          <h3 id="shortcuts-title">Keyboard Shortcuts Manual</h3>
           <button
             type="button"
             className="modal-close-btn"

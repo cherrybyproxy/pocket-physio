@@ -31,7 +31,40 @@ const CALIB_DELAY = 5; // seconds
 
 type PlannedPattern = "sequential" | "alternating";
 
-export default function CalibrationFlow() {
+interface CalibrationFlowProps {
+  isShortcutsOpen?: boolean;
+  onOpenShortcuts?: () => void;
+  onCloseShortcuts?: () => void;
+}
+
+export default function CalibrationFlow({
+  isShortcutsOpen: externalShortcutsOpen,
+  onOpenShortcuts: externalOpenShortcuts,
+  onCloseShortcuts: externalCloseShortcuts,
+}: CalibrationFlowProps = {}) {
+  const [internalShortcutsOpen, setInternalShortcutsOpen] = useState<boolean>(false);
+
+  const isShortcutsOpen =
+    externalShortcutsOpen !== undefined
+      ? externalShortcutsOpen
+      : internalShortcutsOpen;
+
+  const handleOpenShortcuts = useCallback(() => {
+    if (externalOpenShortcuts) {
+      externalOpenShortcuts();
+    } else {
+      setInternalShortcutsOpen(true);
+    }
+  }, [externalOpenShortcuts]);
+
+  const handleCloseShortcuts = useCallback(() => {
+    if (externalCloseShortcuts) {
+      externalCloseShortcuts();
+    } else {
+      setInternalShortcutsOpen(false);
+    }
+  }, [externalCloseShortcuts]);
+
   const [state, setState] = useState<CalibState>("loading");
   const [trackingMode, setTrackingMode] = useState<TrackingMode>("watcher");
   const [trainerSubMode, setTrainerSubMode] = useState<TrainerSubMode>("freestyle");
@@ -40,7 +73,6 @@ export default function CalibrationFlow() {
 
   // planned routine modal pop-up state
   const [showPlannedModal, setShowPlannedModal] = useState<boolean>(false);
-  const [showShortcutsModal, setShowShortcutsModal] = useState<boolean>(false);
   const [showRecalibrateModal, setShowRecalibrateModal] = useState<boolean>(false);
   const [recalibrateCountdown, setRecalibrateCountdown] = useState<number>(5);
   const [isTrainingCompleteModal, setIsTrainingCompleteModal] = useState<boolean>(false);
@@ -134,6 +166,7 @@ export default function CalibrationFlow() {
 
   // reset all session and calibration state back to mode selection screen
   const resetSession = useCallback(() => {
+    handleCloseShortcuts();
     setShowRecalibrateModal(false);
     minL.current = maxL.current = minR.current = maxR.current = null;
     engineRef.current.resetFilters();
@@ -146,23 +179,25 @@ export default function CalibrationFlow() {
     trackerRef.current.updateLimits(null, null);
     trackerRef.current.resetRepStats();
     setState("mode_select");
-  }, []);
+  }, [handleCloseShortcuts]);
 
   // start auto calibration flow
   const startAutoCalib = useCallback(() => {
+    handleCloseShortcuts();
     countdownStart.current = performance.now();
     minL.current = maxL.current = minR.current = maxR.current = null;
     engineRef.current.resetFilters();
     engineRef.current.alpha = 0.6; // faster response during calibration
     setState("auto_calibrate_countdown");
-  }, []);
+  }, [handleCloseShortcuts]);
 
   // start manual calibration flow
   const startManualCalib = useCallback(() => {
+    handleCloseShortcuts();
     minL.current = maxL.current = minR.current = maxR.current = null;
     engineRef.current.resetFilters();
     setState("manual_min_l");
-  }, []);
+  }, [handleCloseShortcuts]);
 
   // reliable countdown timer effect
   useEffect(() => {
@@ -1292,15 +1327,16 @@ export default function CalibrationFlow() {
           </div>
         )}
 
-        {showShortcutsModal && (
-          <ShortcutsModal onClose={() => setShowShortcutsModal(false)} />
+        {/* Render internal shortcuts modal only if not managed externally */}
+        {externalShortcutsOpen === undefined && internalShortcutsOpen && (
+          <ShortcutsModal onClose={handleCloseShortcuts} />
         )}
 
-        {state === "mode_select" && (
+        {state === "mode_select" && !isShortcutsOpen && (
           <ModeSelectModal
             onSelectAuto={startAutoCalib}
             onSelectManual={startManualCalib}
-            onOpenShortcuts={() => setShowShortcutsModal(true)}
+            onOpenShortcuts={handleOpenShortcuts}
           />
         )}
       </div>

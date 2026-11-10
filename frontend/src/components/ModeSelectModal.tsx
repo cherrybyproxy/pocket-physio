@@ -106,7 +106,10 @@ export default function ModeSelectModal({
             id="shortcuts-btn"
             type="button"
             className="btn-link mode-shortcuts-btn"
-            onClick={onOpenShortcuts}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenShortcuts();
+            }}
           >
             Shortcuts [?]
           </button>
