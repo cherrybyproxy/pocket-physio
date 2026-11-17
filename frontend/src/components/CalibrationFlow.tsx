@@ -401,7 +401,7 @@ export default function CalibrationFlow({
           startManualCalib();
         }
       } else if (state === "side_select") {
-        if (e.key === "q" || e.key === "Q" || e.key === "Escape") {
+        if (e.key === "q" || e.key === "Q") {
           setState("mode_select");
           return;
         }
@@ -1106,7 +1106,7 @@ export default function CalibrationFlow({
               className="btn btn-secondary"
               onClick={() => setState("mode_select")}
             >
-              Back [Esc]
+              Back [Q]
             </button>
           </div>
         )}
