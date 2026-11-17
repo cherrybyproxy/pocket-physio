@@ -14,6 +14,7 @@ const SHORTCUTS: ShortcutItem[] = [
   { command: "?", action: "Open / close shortcuts manual", stageSpecific: "No" },
   { command: "M", action: "Manual calibration", stageSpecific: "Yes" },
   { command: "A", action: "Auto calibration", stageSpecific: "Yes" },
+  { command: "L / R / B", action: "Select Left / Right / Both legs", stageSpecific: "Yes" },
   { command: "Space / Click", action: "Lock angle / range & advance", stageSpecific: "No" },
   { command: "W", action: "Movement Watcher", stageSpecific: "Yes" },
   { command: "T", action: "Movement Trainer", stageSpecific: "Yes" },

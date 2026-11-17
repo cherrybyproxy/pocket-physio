@@ -9,6 +9,7 @@ import CameraView from "./CameraView";
 import SessionSummary from "./SessionSummary";
 import ShortcutsModal from "./ShortcutsModal";
 import ModeSelectModal from "./ModeSelectModal";
+import SideSelectModal from "./SideSelectModal";
 import { drawHudText, drawTargetArcGauge } from "../engine/drawUtils";
 
 type TrackingMode = "watcher" | "trainer";
@@ -17,6 +18,7 @@ type TrainerSubMode = "freestyle" | "planned";
 type CalibState =
   | "loading"
   | "mode_select"
+  | "side_select"
   | "auto_calibrate_countdown"
   | "auto_calibrate"
   | "manual_min_l"
@@ -156,6 +158,7 @@ export default function CalibrationFlow({
   const minR = useRef<number | null>(null);
   const maxR = useRef<number | null>(null);
   const countdownStart = useRef<number>(0);
+  const selectedCalibSide = useRef<"left" | "right" | "both">("both");
 
   // session tracking for summary
   const sessionMaxLean = useRef(0);
@@ -191,13 +194,32 @@ export default function CalibrationFlow({
     setState("auto_calibrate_countdown");
   }, [handleCloseShortcuts]);
 
-  // start manual calibration flow
+  // start manual calibration flow - prompts side selection modal
   const startManualCalib = useCallback(() => {
     handleCloseShortcuts();
     minL.current = maxL.current = minR.current = maxR.current = null;
     engineRef.current.resetFilters();
-    setState("manual_min_l");
+    setState("side_select");
   }, [handleCloseShortcuts]);
+
+  // handle side chosen for manual calibration
+  const handleSideChosen = useCallback((side: "left" | "right" | "both") => {
+    selectedCalibSide.current = side;
+    minL.current = maxL.current = minR.current = maxR.current = null;
+    engineRef.current.resetFilters();
+
+    if (side === "left") {
+      engineRef.current.injuredSide = "left";
+      trackerRef.current.injuredSide = "left";
+      setState("manual_min_l");
+    } else if (side === "right") {
+      engineRef.current.injuredSide = "right";
+      trackerRef.current.injuredSide = "right";
+      setState("manual_min_r");
+    } else {
+      setState("manual_min_l");
+    }
+  }, []);
 
   // reliable countdown timer effect
   useEffect(() => {
@@ -280,7 +302,19 @@ export default function CalibrationFlow({
     } else if (state === "manual_max_l") {
       if (!pose || !pose.leftVisible || isNaN(pose.leftKneeAngle)) return;
       maxL.current = pose.leftKneeAngle;
-      setState("manual_min_r");
+
+      if (selectedCalibSide.current === "left") {
+        if (minL.current === null || maxL.current === null) return;
+        engine.injuredSide = "left";
+        engine.alpha = 0.25;
+        engine.resetFilters();
+        tracker.injuredSide = "left";
+        tracker.updateLimits(minL.current, maxL.current);
+        sessionMaxLean.current = 0;
+        setState("tracking_mode_select");
+      } else {
+        setState("manual_min_r");
+      }
     } else if (state === "manual_min_r") {
       if (!pose || !pose.rightVisible || isNaN(pose.rightKneeAngle)) return;
       minR.current = pose.rightKneeAngle;
@@ -289,26 +323,38 @@ export default function CalibrationFlow({
       if (!pose || !pose.rightVisible || isNaN(pose.rightKneeAngle)) return;
       maxR.current = pose.rightKneeAngle;
 
-      if (
-        minL.current === null ||
-        maxL.current === null ||
-        minR.current === null ||
-        maxR.current === null
-      ) {
-        return;
+      if (selectedCalibSide.current === "right") {
+        if (minR.current === null || maxR.current === null) return;
+        engine.injuredSide = "right";
+        engine.alpha = 0.25;
+        engine.resetFilters();
+        tracker.injuredSide = "right";
+        tracker.updateLimits(minR.current, maxR.current);
+        sessionMaxLean.current = 0;
+        setState("tracking_mode_select");
+      } else {
+        if (
+          minL.current === null ||
+          maxL.current === null ||
+          minR.current === null ||
+          maxR.current === null
+        ) {
+          return;
+        }
+
+        const romL = maxL.current - minL.current;
+        const romR = maxR.current - minR.current;
+        engine.injuredSide = romL < romR ? "left" : "right";
+        engine.alpha = 0.25;
+        engine.resetFilters();
+
+        const injMin = engine.injuredSide === "left" ? minL.current : minR.current;
+        const injMax = engine.injuredSide === "left" ? maxL.current : maxR.current;
+        tracker.injuredSide = engine.injuredSide;
+        tracker.updateLimits(injMin, injMax);
+        sessionMaxLean.current = 0;
+        setState("tracking_mode_select");
       }
-
-      const romL = maxL.current - minL.current;
-      const romR = maxR.current - minR.current;
-      engine.injuredSide = romL < romR ? "left" : "right";
-      engine.resetFilters();
-
-      const injMin = engine.injuredSide === "left" ? minL.current : minR.current;
-      const injMax = engine.injuredSide === "left" ? maxL.current : maxR.current;
-      tracker.injuredSide = engine.injuredSide;
-      tracker.updateLimits(injMin, injMax);
-      sessionMaxLean.current = 0;
-      setState("tracking_mode_select");
     } else if (state === "tracking_mode_select") {
       setState("tracking");
       setShowInfoPopup(true);
@@ -353,6 +399,23 @@ export default function CalibrationFlow({
           startAutoCalib();
         } else if (e.key === "m" || e.key === "M") {
           startManualCalib();
+        }
+      } else if (state === "side_select") {
+        if (e.key === "q" || e.key === "Q" || e.key === "Escape") {
+          setState("mode_select");
+          return;
+        }
+        if (e.key === "l" || e.key === "L") {
+          handleSideChosen("left");
+          return;
+        }
+        if (e.key === "r" || e.key === "R") {
+          handleSideChosen("right");
+          return;
+        }
+        if (e.key === "b" || e.key === "B") {
+          handleSideChosen("both");
+          return;
         }
       } else if (state === "tracking_mode_select") {
         if (e.key === "q" || e.key === "Q") {
@@ -426,7 +489,7 @@ export default function CalibrationFlow({
 
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [state, showPlannedModal, showRecalibrateModal, startAutoCalib, startManualCalib, handleLockOrAdvance, resetSession]);
+  }, [state, showPlannedModal, showRecalibrateModal, startAutoCalib, startManualCalib, handleSideChosen, handleLockOrAdvance, resetSession]);
 
   // per-frame callback: update calibration accumulators during auto-calibrate
   const onFrame = useCallback(
@@ -910,7 +973,7 @@ export default function CalibrationFlow({
     );
   }
 
-  const isFrontal = state.startsWith("auto_calibrate") || state === "mode_select";
+  const isFrontal = state.startsWith("auto_calibrate") || state === "mode_select" || state === "side_select";
   const filterSide: "left" | "right" | "all" =
     state === "manual_min_l" || state === "manual_max_l"
       ? "left"
@@ -1011,6 +1074,40 @@ export default function CalibrationFlow({
         {state === "mode_select" && (
           <div className="control-info">
             <span>Select calibration mode to start</span>
+          </div>
+        )}
+
+        {state === "side_select" && (
+          <div className="control-button-group">
+            <button
+              id="side-left-btn"
+              className="btn btn-primary"
+              style={{ backgroundColor: "#AC3834", borderColor: "#AC3834" }}
+              onClick={() => handleSideChosen("left")}
+            >
+              Left Leg [L]
+            </button>
+            <button
+              id="side-right-btn"
+              className="btn btn-primary"
+              style={{ backgroundColor: "#4292C6", borderColor: "#4292C6" }}
+              onClick={() => handleSideChosen("right")}
+            >
+              Right Leg [R]
+            </button>
+            <button
+              id="side-both-btn"
+              className="btn btn-secondary"
+              onClick={() => handleSideChosen("both")}
+            >
+              Both Legs [B]
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={() => setState("mode_select")}
+            >
+              Back [Esc]
+            </button>
           </div>
         )}
 
@@ -1337,6 +1434,13 @@ export default function CalibrationFlow({
             onSelectAuto={startAutoCalib}
             onSelectManual={startManualCalib}
             onOpenShortcuts={handleOpenShortcuts}
+          />
+        )}
+
+        {state === "side_select" && !isShortcutsOpen && (
+          <SideSelectModal
+            onSelectSide={handleSideChosen}
+            onBack={() => setState("mode_select")}
           />
         )}
       </div>

@@ -81,7 +81,7 @@ export default function ModeSelectModal({
                 <span className="mode-badge">Side-on</span>
               </div>
               <p className="mode-card-desc">
-                Position camera to your side. Step through guided angle captures for extension and flexion on each leg.
+                Position camera to your side. Choose your target leg or both, then step through guided angle captures.
               </p>
             </div>
             <button
