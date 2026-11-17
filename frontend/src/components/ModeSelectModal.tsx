@@ -53,6 +53,10 @@ export default function ModeSelectModal({
               id="auto-calib-btn"
               type="button"
               className="btn btn-primary mode-card-btn"
+              style={{
+                backgroundColor: "#89429b",
+                borderColor: "#89429b",
+              }}
               onClick={(e) => {
                 e.stopPropagation();
                 onSelectAuto();

@@ -350,6 +350,16 @@ body {
   background: var(--bg-surface-hover);
 }
 
+.mode-card.mode-card-left:hover,
+.mode-card.mode-card-left:focus-visible {
+  border-color: #AC3834;
+}
+
+.mode-card.mode-card-right:hover,
+.mode-card.mode-card-right:focus-visible {
+  border-color: #4292C6;
+}
+
 .mode-card-body {
   display: flex;
   flex-direction: column;
@@ -394,6 +404,16 @@ body {
   justify-content: center;
   padding: 0.6rem 1rem;
   font-size: 0.88rem;
+}
+
+#auto-calib-btn,
+#auto-calib-btn:hover,
+#auto-calib-btn:focus-visible,
+#auto-calib-btn:active {
+  background: #89429b;
+  border-color: #89429b;
+  color: #ffffff;
+  opacity: 1;
 }
 
 .mode-select-footer {
@@ -1190,7 +1210,7 @@ body {
 
 .chart-grid-line {
   stroke: var(--border-subtle);
-  stroke-dasharray: 4,4;
+  stroke-dasharray: 4, 4;
   stroke-width: 1px;
 }
 
@@ -1235,7 +1255,7 @@ body {
 
 .chart-hover-line {
   stroke: rgba(255, 255, 255, 0.18);
-  stroke-dasharray: 3,3;
+  stroke-dasharray: 3, 3;
   stroke-width: 1px;
   pointer-events: none;
 }

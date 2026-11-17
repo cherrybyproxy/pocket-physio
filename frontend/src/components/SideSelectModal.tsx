@@ -54,14 +54,42 @@ export default function SideSelectModal({
           </p>
         </div>
 
+        {/* Both Legs option */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "0.85rem 1.15rem",
+            background: "var(--bg-secondary)",
+            borderRadius: "var(--radius)",
+            border: "1px solid var(--border-subtle)",
+          }}
+        >
+          <div style={{ textAlign: "left" }}>
+            <h3 className="mode-card-title">Both Legs</h3>
+            <p style={{ margin: "0.3rem 0 0 0", fontSize: "0.84rem", color: "var(--text-secondary)" }}>
+              Step through left and right leg calibration.
+            </p>
+          </div>
+          <button
+            id="select-both-legs-btn"
+            type="button"
+            className="btn btn-secondary"
+            style={{ fontSize: "0.88rem", padding: "0.55rem 1rem" }}
+            onClick={() => onSelectSide("both")}
+          >
+            Both Legs [B]
+          </button>
+        </div>
+
         <div className="mode-select-cards" style={{ gridTemplateColumns: "1fr 1fr" }}>
           {/* Left Leg */}
           <div
-            className="mode-card"
+            className="mode-card mode-card-left"
             onClick={() => onSelectSide("left")}
             role="button"
             tabIndex={0}
-            style={{ borderColor: "rgba(172, 56, 52, 0.4)" }}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
@@ -96,11 +124,10 @@ export default function SideSelectModal({
 
           {/* Right Leg */}
           <div
-            className="mode-card"
+            className="mode-card mode-card-right"
             onClick={() => onSelectSide("right")}
             role="button"
             tabIndex={0}
-            style={{ borderColor: "rgba(66, 146, 198, 0.4)" }}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
@@ -132,35 +159,6 @@ export default function SideSelectModal({
               Right Leg [R]
             </button>
           </div>
-        </div>
-
-        {/* Both Legs option */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "0.85rem 1.15rem",
-            background: "var(--bg-secondary)",
-            borderRadius: "var(--radius)",
-            border: "1px solid var(--border-subtle)",
-          }}
-        >
-          <div style={{ textAlign: "left" }}>
-            <h3 className="mode-card-title">Both Legs</h3>
-            <p style={{ margin: "0.3rem 0 0 0", fontSize: "0.84rem", color: "var(--text-secondary)" }}>
-              Step through left and right leg calibration.
-            </p>
-          </div>
-          <button
-            id="select-both-legs-btn"
-            type="button"
-            className="btn btn-secondary"
-            style={{ fontSize: "0.88rem", padding: "0.55rem 1rem" }}
-            onClick={() => onSelectSide("both")}
-          >
-            Both Legs [B]
-          </button>
         </div>
 
         <div className="mode-select-footer">
