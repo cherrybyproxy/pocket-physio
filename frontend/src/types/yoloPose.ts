@@ -1,4 +1,4 @@
-// Keypoint definition for YOLOv8 Pose (17 COCO keypoints)
+// keypoint definition for YOLOv8 Pose (17 COCO keypoints)
 export interface Keypoint {
   x: number; // normalized [0, 1] relative to original image width
   y: number; // normalized [0, 1] relative to original image height
@@ -14,6 +14,7 @@ export interface YoloPoseWorkerInput {
 
 export interface YoloPoseWorkerInit {
   type: "INIT_MODEL";
+  modelBuffer?: ArrayBuffer;
   modelPath?: string;
 }
 

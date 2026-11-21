@@ -3,40 +3,54 @@
 // orange on left leg, teal on right leg, white on torso midline.
 // clean, crisp aesthetic without neon bloom.
 
-import type { NormalizedLandmark } from "@mediapipe/tasks-vision";
+import type { NormalizedLandmark } from "./poseEngine";
+import { COCO_KEYPOINTS } from "../types/yoloPose";
 
 interface ConnectionSpec {
   pair: [number, number];
   color: string;
 }
 
-// focused lower-body & torso pose connections (face and arms excluded)
+// focused lower-body & torso pose connections using COCO 17 keypoint indices
 const LOWER_BODY_CONNECTIONS: ConnectionSpec[] = [
-  // left leg (orange)
-  { pair: [23, 25], color: "#AC3834" },
-  { pair: [25, 27], color: "#AC3834" },
-  { pair: [27, 29], color: "#AC3834" },
-  { pair: [27, 31], color: "#AC3834" },
-  { pair: [29, 31], color: "#AC3834" },
+  // left leg (orange): hip (11) -> knee (13) -> ankle (15)
+  { pair: [COCO_KEYPOINTS.LEFT_HIP, COCO_KEYPOINTS.LEFT_KNEE], color: "#AC3834" },
+  { pair: [COCO_KEYPOINTS.LEFT_KNEE, COCO_KEYPOINTS.LEFT_ANKLE], color: "#AC3834" },
 
-  // right leg (teal)
-  { pair: [24, 26], color: "#4292C6" },
-  { pair: [26, 28], color: "#4292C6" },
-  { pair: [28, 30], color: "#4292C6" },
-  { pair: [28, 32], color: "#4292C6" },
-  { pair: [30, 32], color: "#4292C6" },
+  // right leg (teal): hip (12) -> knee (14) -> ankle (16)
+  { pair: [COCO_KEYPOINTS.RIGHT_HIP, COCO_KEYPOINTS.RIGHT_KNEE], color: "#4292C6" },
+  { pair: [COCO_KEYPOINTS.RIGHT_KNEE, COCO_KEYPOINTS.RIGHT_ANKLE], color: "#4292C6" },
 
   // torso frame (neutral white & side bounds)
-  { pair: [11, 12], color: "#ffffff" }, // shoulders
-  { pair: [23, 24], color: "#ffffff" }, // hips
-  { pair: [11, 23], color: "rgba(172, 56, 52, 0.7)" }, // left trunk
-  { pair: [12, 24], color: "rgba(66, 146, 198, 0.7)" }, // right trunk
+  { pair: [COCO_KEYPOINTS.LEFT_SHOULDER, COCO_KEYPOINTS.RIGHT_SHOULDER], color: "#ffffff" }, // shoulders (5, 6)
+  { pair: [COCO_KEYPOINTS.LEFT_HIP, COCO_KEYPOINTS.RIGHT_HIP], color: "#ffffff" }, // hips (11, 12)
+  { pair: [COCO_KEYPOINTS.LEFT_SHOULDER, COCO_KEYPOINTS.LEFT_HIP], color: "rgba(172, 56, 52, 0.7)" }, // left trunk
+  { pair: [COCO_KEYPOINTS.RIGHT_SHOULDER, COCO_KEYPOINTS.RIGHT_HIP], color: "rgba(66, 146, 198, 0.7)" }, // right trunk
 ];
 
-// visible joint landmark indices: shoulders (11,12), hips (23,24), knees (25,26), ankles (27,28), feet (29,30,31,32)
-const VISIBLE_JOINTS = new Set([11, 12, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]);
-const LEFT_JOINTS = new Set([23, 25, 27, 29, 31]);
-const RIGHT_JOINTS = new Set([24, 26, 28, 30, 32]);
+// visible joint landmark indices: shoulders (5, 6), hips (11, 12), knees (13, 14), ankles (15, 16)
+const VISIBLE_JOINTS = new Set<number>([
+  COCO_KEYPOINTS.LEFT_SHOULDER,
+  COCO_KEYPOINTS.RIGHT_SHOULDER,
+  COCO_KEYPOINTS.LEFT_HIP,
+  COCO_KEYPOINTS.RIGHT_HIP,
+  COCO_KEYPOINTS.LEFT_KNEE,
+  COCO_KEYPOINTS.RIGHT_KNEE,
+  COCO_KEYPOINTS.LEFT_ANKLE,
+  COCO_KEYPOINTS.RIGHT_ANKLE,
+]);
+
+const LEFT_JOINTS = new Set<number>([
+  COCO_KEYPOINTS.LEFT_HIP,
+  COCO_KEYPOINTS.LEFT_KNEE,
+  COCO_KEYPOINTS.LEFT_ANKLE,
+]);
+
+const RIGHT_JOINTS = new Set<number>([
+  COCO_KEYPOINTS.RIGHT_HIP,
+  COCO_KEYPOINTS.RIGHT_KNEE,
+  COCO_KEYPOINTS.RIGHT_ANKLE,
+]);
 
 // draw the clean pose skeleton (torso + legs only, no face or arms).
 // landmarks are in normalized [0,1] coordinates relative to the video frame.
@@ -72,7 +86,7 @@ export function drawSkeleton(
 
     const aVis = a.visibility ?? 1;
     const bVis = b.visibility ?? 1;
-    if (aVis < 0.35 || bVis < 0.35) continue;
+    if (aVis < 0.20 || bVis < 0.20) continue;
 
     ctx.strokeStyle = conn.color;
     ctx.beginPath();
@@ -90,11 +104,11 @@ export function drawSkeleton(
     if (!lm) continue;
 
     const v = lm.visibility ?? 1;
-    if (v < 0.35) continue;
+    if (v < 0.20) continue;
 
-    const isKnee = i === 25 || i === 26;
-    const isHip = i === 23 || i === 24;
-    const isAnkle = i === 27 || i === 28;
+    const isKnee = i === COCO_KEYPOINTS.LEFT_KNEE || i === COCO_KEYPOINTS.RIGHT_KNEE;
+    const isHip = i === COCO_KEYPOINTS.LEFT_HIP || i === COCO_KEYPOINTS.RIGHT_HIP;
+    const isAnkle = i === COCO_KEYPOINTS.LEFT_ANKLE || i === COCO_KEYPOINTS.RIGHT_ANKLE;
     const isKeyJoint = isKnee || isHip || isAnkle;
 
     const radius = isKeyJoint ? 6 : 4;
@@ -163,9 +177,9 @@ export function drawTargetArcGauge(
 ): void {
   if (!landmarks || landmarks.length === 0) return;
 
-  const kneeIdx = injuredSide === "left" ? 25 : 26;
-  const hipIdx = injuredSide === "left" ? 23 : 24;
-  const ankleIdx = injuredSide === "left" ? 27 : 28;
+  const kneeIdx = injuredSide === "left" ? COCO_KEYPOINTS.LEFT_KNEE : COCO_KEYPOINTS.RIGHT_KNEE;
+  const hipIdx = injuredSide === "left" ? COCO_KEYPOINTS.LEFT_HIP : COCO_KEYPOINTS.RIGHT_HIP;
+  const ankleIdx = injuredSide === "left" ? COCO_KEYPOINTS.LEFT_ANKLE : COCO_KEYPOINTS.RIGHT_ANKLE;
 
   const knee = landmarks[kneeIdx];
   const hip = landmarks[hipIdx];
@@ -254,7 +268,7 @@ export function drawSlamAnchorCrosshair(
   ctx.translate(width, 0);
   ctx.scale(-1, 1);
 
-  // Outer glowing ring
+  // outer glowing ring
   ctx.beginPath();
   ctx.arc(px, py, size, 0, 2 * Math.PI);
   ctx.lineWidth = 2;
@@ -262,13 +276,13 @@ export function drawSlamAnchorCrosshair(
   ctx.setLineDash([4, 4]);
   ctx.stroke();
 
-  // Inner target circle
+  // inner target circle
   ctx.beginPath();
   ctx.arc(px, py, 4, 0, 2 * Math.PI);
   ctx.fillStyle = color;
   ctx.fill();
 
-  // Crosshair ticks
+  // crosshair ticks
   ctx.setLineDash([]);
   ctx.lineWidth = 1.5;
   ctx.strokeStyle = color;
@@ -286,5 +300,3 @@ export function drawSlamAnchorCrosshair(
 
   ctx.restore();
 }
-
-

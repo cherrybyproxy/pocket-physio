@@ -6,9 +6,11 @@ import type {
 } from "../types/yoloPose";
 import { PoseKeypointFilter } from "../engine/oneEuroFilter";
 
-// Configure WASM asset location to public root
-ort.env.wasm.wasmPaths = "/";
-// Set thread count to 1 or 2 for web worker stability
+// configure WASM and JSEP asset location using official jsDelivr CDN matching onnxruntime-web@1.31.1
+// this prevents Vite dev server from intercepting .mjs dynamic imports as source code
+ort.env.wasm.wasmPaths =
+  "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.31.1/dist/";
+// set thread count to 2 for web worker stability
 ort.env.wasm.numThreads = 2;
 
 let session: ort.InferenceSession | null = null;
@@ -16,8 +18,11 @@ let activeProvider: "webgpu" | "wasm" = "wasm";
 const keypointFilter = new PoseKeypointFilter(17, 1.2, 0.007);
 
 const MODEL_INPUT_SIZE = 640;
+const pixelCount = MODEL_INPUT_SIZE * MODEL_INPUT_SIZE;
+// pre-allocated static buffer to avoid continuous memory reallocation and GC spikes
+const preallocatedFloat32 = new Float32Array(3 * pixelCount);
 
-// Offscreen canvas for letterboxing preprocessing
+// offscreen canvas for letterboxing preprocessing
 let offscreenCanvas: OffscreenCanvas | null = null;
 let offscreenCtx: OffscreenCanvasRenderingContext2D | null = null;
 
@@ -34,11 +39,17 @@ function getCanvas(): {
   return { canvas: offscreenCanvas, ctx: offscreenCtx };
 }
 
-async function initModel(modelUrl = "/models/yolov8n-pose.onnx") {
+async function initModel(modelSource: string | ArrayBuffer = "/models/yolov8n-pose.onnx") {
   try {
-    // Try WebGPU first
+    console.log("[YOLO-Pose Worker] Starting model session creation...");
+    const modelData =
+      typeof modelSource === "string"
+        ? modelSource
+        : new Uint8Array(modelSource);
+
+    // try WebGPU first for maximum hardware inference performance
     try {
-      session = await ort.InferenceSession.create(modelUrl, {
+      session = await (ort.InferenceSession.create as any)(modelData, {
         executionProviders: ["webgpu"],
         graphOptimizationLevel: "all",
       });
@@ -49,7 +60,7 @@ async function initModel(modelUrl = "/models/yolov8n-pose.onnx") {
         "[YOLO-Pose Worker] WebGPU initialization failed, falling back to WASM:",
         gpuErr
       );
-      session = await ort.InferenceSession.create(modelUrl, {
+      session = await (ort.InferenceSession.create as any)(modelData, {
         executionProviders: ["wasm"],
         graphOptimizationLevel: "all",
       });
@@ -72,10 +83,8 @@ async function initModel(modelUrl = "/models/yolov8n-pose.onnx") {
   }
 }
 
-/**
- * Letterbox pre-processing: maintains image aspect ratio, pads remaining area with gray (114).
- * Returns CHW float32 tensor [1, 3, 640, 640] normalized to [0, 1].
- */
+// letterbox pre-processing: maintains image aspect ratio, pads remaining area with gray (114).
+// returns CHW float32 tensor [1, 3, 640, 640] normalized to [0, 1].
 function preprocess(imageBitmap: ImageBitmap): {
   tensor: ort.Tensor;
   scale: number;
@@ -88,37 +97,33 @@ function preprocess(imageBitmap: ImageBitmap): {
   const origH = imageBitmap.height;
   const { ctx } = getCanvas();
 
-  // Compute aspect-ratio letterbox scaling
+  // compute aspect-ratio letterbox scaling
   const scale = Math.min(MODEL_INPUT_SIZE / origW, MODEL_INPUT_SIZE / origH);
   const newW = Math.round(origW * scale);
   const newH = Math.round(origH * scale);
   const padX = (MODEL_INPUT_SIZE - newW) / 2;
   const padY = (MODEL_INPUT_SIZE - newH) / 2;
 
-  // Fill padding background (YOLO standard gray 114)
+  // fill padding background (YOLO standard gray 114)
   ctx.fillStyle = "rgb(114, 114, 114)";
   ctx.fillRect(0, 0, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE);
 
-  // Draw scaled image centered
+  // draw scaled image centered
   ctx.drawImage(imageBitmap, padX, padY, newW, newH);
 
   const imgData = ctx.getImageData(0, 0, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE);
   const rgba = imgData.data;
-  const pixelCount = MODEL_INPUT_SIZE * MODEL_INPUT_SIZE;
-  const float32Data = new Float32Array(3 * pixelCount);
 
-  // Convert HWC (RGBA) to CHW (RGB) normalized to [0.0, 1.0]
-  for (let i = 0; i < pixelCount; i++) {
-    const r = rgba[i * 4] / 255.0;
-    const g = rgba[i * 4 + 1] / 255.0;
-    const b = rgba[i * 4 + 2] / 255.0;
-
-    float32Data[i] = r; // Channel 0: R
-    float32Data[pixelCount + i] = g; // Channel 1: G
-    float32Data[2 * pixelCount + i] = b; // Channel 2: B
+  // convert HWC (RGBA) to CHW (RGB) normalized to [0.0, 1.0] with fast stride loop
+  const inv255 = 1.0 / 255.0;
+  const p2 = 2 * pixelCount;
+  for (let i = 0, i4 = 0; i < pixelCount; i++, i4 += 4) {
+    preallocatedFloat32[i] = rgba[i4] * inv255; // channel 0: R
+    preallocatedFloat32[pixelCount + i] = rgba[i4 + 1] * inv255; // channel 1: G
+    preallocatedFloat32[p2 + i] = rgba[i4 + 2] * inv255; // channel 2: B
   }
 
-  const tensor = new ort.Tensor("float32", float32Data, [
+  const tensor = new ort.Tensor("float32", preallocatedFloat32, [
     1,
     3,
     MODEL_INPUT_SIZE,
@@ -127,14 +132,12 @@ function preprocess(imageBitmap: ImageBitmap): {
   return { tensor, scale, padX, padY, origW, origH };
 }
 
-/**
- * Post-processes YOLOv8-Pose output tensor.
- * Output shape: [1, 56, 8400]
- * 56 features:
- *   0..3: x_center, y_center, width, height (bbox in 640x640 space)
- *   4: box confidence score
- *   5..55: 17 keypoints * 3 (x, y, confidence score per keypoint)
- */
+// post-processes YOLOv8-Pose output tensor.
+// output shape: [1, 56, 8400]
+// 56 features:
+//   0..3: x_center, y_center, width, height (bbox in 640x640 space)
+//   4: box confidence score
+//   5..55: 17 keypoints * 3 (x, y, confidence score per keypoint)
 function postprocess(
   outputTensor: ort.Tensor,
   scale: number,
@@ -144,13 +147,13 @@ function postprocess(
   origH: number
 ): Keypoint[] | null {
   const data = outputTensor.data as Float32Array;
-  // Tensor shape: [1, 56, 8400]
+  // tensor shape: [1, 56, 8400]
   const numCandidates = 8400;
 
   let bestBoxIdx = -1;
-  let maxScore = 0.35; // Box confidence threshold
+  let maxScore = 0.25; // person detection threshold
 
-  // Find the candidate person box with the highest confidence
+  // find the candidate person box with the highest confidence
   for (let c = 0; c < numCandidates; c++) {
     const score = data[4 * numCandidates + c];
     if (score > maxScore) {
@@ -163,7 +166,7 @@ function postprocess(
     return null;
   }
 
-  // Extract the 17 keypoints from the highest confidence detection
+  // extract the 17 keypoints from the highest confidence detection
   const keypoints: Keypoint[] = [];
   for (let k = 0; k < 17; k++) {
     const kxIdx = (5 + k * 3) * numCandidates + bestBoxIdx;
@@ -172,13 +175,15 @@ function postprocess(
 
     const rawX = data[kxIdx];
     const rawY = data[kyIdx];
-    const kScore = data[kScoreIdx];
+    const rawScore = data[kScoreIdx];
+    // YOLO keypoint visibility values in ONNX exports are raw logits; apply sigmoid to get true probability
+    const kScore = 1.0 / (1.0 + Math.exp(-rawScore));
 
-    // Un-letterbox: remove padding and rescale back to original image space
+    // un-letterbox: remove padding and rescale back to original image space
     const unpaddedX = (rawX - padX) / scale;
     const unpaddedY = (rawY - padY) / scale;
 
-    // Normalize coordinates to [0, 1] relative to video frame dimensions
+    // normalize coordinates to [0, 1] relative to video frame dimensions
     const normX = Math.max(0, Math.min(1, unpaddedX / origW));
     const normY = Math.max(0, Math.min(1, unpaddedY / origH));
 
@@ -189,7 +194,7 @@ function postprocess(
     });
   }
 
-  // Apply One-Euro filter to eliminate jitter while preserving fast movement fidelity
+  // apply 1-euro filter to eliminate jitter while preserving fast movement fidelity
   return keypointFilter.filter(keypoints);
 }
 
@@ -197,7 +202,7 @@ self.onmessage = async (e: MessageEvent<YoloWorkerRequest>) => {
   const msg = e.data;
 
   if (msg.type === "INIT_MODEL") {
-    await initModel(msg.modelPath);
+    await initModel(msg.modelBuffer || msg.modelPath || "/models/yolov8n-pose.onnx");
     return;
   }
 
@@ -217,9 +222,9 @@ self.onmessage = async (e: MessageEvent<YoloWorkerRequest>) => {
     const startTime = performance.now();
     try {
       const { tensor, scale, padX, padY, origW, origH } = preprocess(imageBitmap);
-      imageBitmap.close(); // Clean up GPU/memory transfer bitmap immediately
+      imageBitmap.close(); // clean up GPU/memory transfer bitmap immediately
 
-      // Fetch input name dynamically from loaded ONNX session
+      // fetch input name dynamically from loaded ONNX session
       const inputName = session.inputNames[0];
       const feeds: Record<string, ort.Tensor> = {};
       feeds[inputName] = tensor;

@@ -1,15 +1,17 @@
-// core component: acquires webcam, runs mediapipe continuously, and renders
-// the skeleton overlay + hud on an html5 canvas stacked on top of the video.
+// core component: acquires webcam, transfers frames to yolo-pose.worker.ts,
+// and renders the skeleton overlay + hud on an html5 canvas stacked on top of the video.
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { PoseEngine, PoseState } from "../engine/poseEngine";
-import { useOpticalFlowTracker } from "../hooks/useOpticalFlowTracker";
-import { drawSkeleton, drawSlamAnchorCrosshair } from "../engine/drawUtils";
-import { checkConfidenceAndTriggerFallback, type FallbackTriggerEvent } from "./PoseScanner";
+import { drawSkeleton } from "../engine/drawUtils";
+import type {
+  YoloWorkerResponse,
+  PoseKeypoints,
+} from "../types/yoloPose";
 
 interface CameraViewProps {
   engine: PoseEngine;
-  // whether to use 3D Euclidean angle (frontal auto-calib) or 2D planar angle (side-on manual/tracking)
+  // whether tracking frontal view or side-on view
   isFrontal?: boolean;
   // filter skeleton rendering to specific leg during manual calibration
   filterSide?: "left" | "right" | "all";
@@ -28,13 +30,6 @@ interface CameraViewProps {
   onCanvasClick?: () => void;
 }
 
-interface CachedJoint {
-  x: number;
-  y: number;
-  visibility: number;
-  timestamp: number;
-}
-
 export default function CameraView({
   engine,
   isFrontal,
@@ -47,31 +42,16 @@ export default function CameraView({
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
-  const [fallbackStatus, setFallbackStatus] = useState<FallbackTriggerEvent | null>(null);
+  const [workerReady, setWorkerReady] = useState(false);
+  const [inferenceFps, setInferenceFps] = useState<number>(0);
+  const [activeProvider, setActiveProvider] = useState<string>("wasm");
 
-  const slamTracker = useOpticalFlowTracker();
-  const slamTrackerRef = useRef(slamTracker);
-  slamTrackerRef.current = slamTracker;
-
-  const lastKnownJointsRef = useRef<Record<number, CachedJoint>>({});
+  // YOLO pose web worker reference
+  const workerRef = useRef<Worker | null>(null);
+  // in-flight backpressure lock to prevent queue buildup
   const inFlightRef = useRef(false);
-
-  // invalidate cached joint coordinates
-  const invalidateJointCache = useCallback(() => {
-    lastKnownJointsRef.current = {};
-  }, []);
-
-  // clear cached coordinates when session or calibration resets
-  const prevIsActiveRef = useRef(isActive);
-  useEffect(() => {
-    if (prevIsActiveRef.current !== isActive) {
-      prevIsActiveRef.current = isActive;
-      invalidateJointCache();
-      if (slamTrackerRef.current.hasActiveTracker()) {
-        slamTrackerRef.current.resetTracker();
-      }
-    }
-  }, [isActive, invalidateJointCache]);
+  // latest processed keypoints
+  const latestKeypointsRef = useRef<PoseKeypoints | null>(null);
 
   // keep callback refs fresh so the continuous RAF loop never drops frames
   const onFrameRef = useRef(onFrame);
@@ -89,13 +69,66 @@ export default function CameraView({
   const filterSideRef = useRef(filterSide);
   filterSideRef.current = filterSide;
 
+  // initialize yolo-pose worker
+  useEffect(() => {
+    // instantiate module worker
+    const worker = new Worker(
+      new URL("../workers/yolo-pose.worker.ts", import.meta.url),
+      { type: "module" }
+    );
+    workerRef.current = worker;
+
+    worker.onmessage = (e: MessageEvent<YoloWorkerResponse>) => {
+      const msg = e.data;
+
+      if (msg.type === "MODEL_READY") {
+        setWorkerReady(true);
+        setActiveProvider(msg.provider);
+        console.log(`[CameraView] YOLOv8 Pose Worker ready (${msg.provider})`);
+      } else if (msg.type === "POSE_RESULT") {
+        // save latest detected keypoints
+        latestKeypointsRef.current = msg.keypoints;
+        inFlightRef.current = false;
+
+        if (msg.inferenceTimeMs > 0) {
+          const fps = Math.round(1000 / msg.inferenceTimeMs);
+          setInferenceFps(fps);
+        }
+      } else if (msg.type === "ERROR") {
+        console.error("[CameraView] YOLO Worker error:", msg.message);
+        inFlightRef.current = false;
+      }
+    };
+
+    // fetch model binary on the main thread and transfer buffer to worker
+    fetch("/models/yolov8n-pose.onnx")
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error(`Failed to fetch YOLO model (${res.status} ${res.statusText})`);
+        }
+        return res.arrayBuffer();
+      })
+      .then((buffer) => {
+        console.log(`[CameraView] Fetched YOLO model (${(buffer.byteLength / 1024 / 1024).toFixed(1)} MB), transferring to worker...`);
+        worker.postMessage({ type: "INIT_MODEL", modelBuffer: buffer }, [buffer]);
+      })
+      .catch((err) => {
+        console.error("[CameraView] Failed to load model file:", err);
+        setCameraError("Failed to load YOLOv8 model file from /models/yolov8n-pose.onnx");
+      });
+
+    return () => {
+      worker.terminate();
+      workerRef.current = null;
+    };
+  }, []);
+
   // start webcam stream
   useEffect(() => {
     let stream: MediaStream | null = null;
 
     async function startCamera() {
       try {
-        invalidateJointCache();
         stream = await navigator.mediaDevices.getUserMedia({
           video: {
             width: { ideal: 1280, min: 640 },
@@ -107,7 +140,7 @@ export default function CameraView({
 
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
-          videoRef.current.play().catch(() => { });
+          videoRef.current.play().catch(() => {});
         }
       } catch {
         setCameraError("Camera access denied or unavailable. Please enable permissions.");
@@ -119,15 +152,14 @@ export default function CameraView({
     return () => {
       stream?.getTracks().forEach((t) => t.stop());
     };
-  }, [invalidateJointCache]);
+  }, []);
 
-  // permanent, continuous render loop
+  // continuous RAF animation and video frame pipeline
   useEffect(() => {
     let isRunning = true;
     let animId = 0;
-    let lastTimestamp = 0;
 
-    function renderLoop() {
+    async function renderLoop() {
       if (!isRunning) return;
 
       const video = videoRef.current;
@@ -147,158 +179,36 @@ export default function CameraView({
         ) {
           canvas.width = video.videoWidth;
           canvas.height = video.videoHeight;
-          invalidateJointCache();
         }
 
         const ctx = canvas.getContext("2d");
         if (ctx) {
-          let now = performance.now();
-          if (now <= lastTimestamp) {
-            now = lastTimestamp + 1;
-          }
-          lastTimestamp = now;
-
-          // process frame through mediapipe wasm with deterministic isFrontal mode
-          const state = engineRef.current.processFrame(video, now, isFrontalRef.current);
-
-          // update last-known valid high-confidence landmark positions with timestamps
-          if (state?.normalizedLandmarks && !inFlightRef.current) {
-            state.normalizedLandmarks.forEach((lm, idx) => {
-              const vis = lm.visibility ?? 1.0;
-              if (vis >= 0.6) {
-                lastKnownJointsRef.current[idx] = {
-                  x: lm.x,
-                  y: lm.y,
-                  visibility: vis,
-                  timestamp: now,
-                };
-              }
-            });
-
-            const targetJoints =
-              filterSideRef.current === "left"
-                ? [23, 25]
-                : filterSideRef.current === "right"
-                  ? [24, 26]
-                  : [23, 24, 25, 26];
-
+          // send new frame to worker if not currently busy
+          if (
+            workerRef.current &&
+            workerReady &&
+            !inFlightRef.current &&
+            video.videoWidth > 0
+          ) {
             inFlightRef.current = true;
-            checkConfidenceAndTriggerFallback(state.normalizedLandmarks, targetJoints, video)
-              .then((evt) => {
-                setFallbackStatus((prev) => {
-                  if (
-                    prev?.triggered === evt.triggered &&
-                    prev?.joint === evt.joint &&
-                    Math.abs((prev?.confidence ?? 0) - evt.confidence) < 0.05
-                  ) {
-                    return prev;
-                  }
-                  return evt;
-                });
-
-                if (evt.triggered && evt.imageBitmap) {
-                  if (!slamTrackerRef.current.hasActiveTracker()) {
-                    const sidesToTrack = evt.sidesToTrack && evt.sidesToTrack.length > 0
-                      ? evt.sidesToTrack
-                      : ["left" as const, "right" as const];
-
-                    const anchors: { left?: { x: number; y: number }; right?: { x: number; y: number } } = {};
-                    const limbs: { left?: { x: number; y: number }[]; right?: { x: number; y: number }[] } = {};
-
-                    for (const side of sidesToTrack) {
-                      const kneeIdx = side === "right" ? 26 : 25;
-                      const [h, a] = side === "right" ? [24, 28] : [23, 27];
-
-                      // prefer current reliable MediaPipe knee observation
-                      const currentLm = state.normalizedLandmarks[kneeIdx];
-                      let selectedAnchor: { x: number; y: number } | null = null;
-                      let source = "none";
-                      let confidence = 0;
-                      let ageMs = 0;
-
-                      if (currentLm && (currentLm.visibility === undefined || currentLm.visibility >= 0.6)) {
-                        selectedAnchor = { x: currentLm.x, y: currentLm.y };
-                        source = "current MediaPipe";
-                        confidence = currentLm.visibility ?? 1.0;
-                        ageMs = 0;
-                      } else {
-                        // fall back to recent cached knee coordinate (<= 150ms)
-                        const cached = lastKnownJointsRef.current[kneeIdx];
-                        if (cached) {
-                          const age = now - cached.timestamp;
-                          if (age <= 150) {
-                            selectedAnchor = { x: cached.x, y: cached.y };
-                            source = "cached";
-                            confidence = cached.visibility;
-                            ageMs = Math.round(age);
-                          }
-                        }
-                      }
-
-                      if (selectedAnchor) {
-                        anchors[side] = selectedAnchor;
-
-                        const hipPt = state.normalizedLandmarks[h]
-                          ? { x: state.normalizedLandmarks[h].x, y: state.normalizedLandmarks[h].y }
-                          : lastKnownJointsRef.current[h]
-                            ? { x: lastKnownJointsRef.current[h].x, y: lastKnownJointsRef.current[h].y }
-                            : undefined;
-
-                        const anklePt = state.normalizedLandmarks[a]
-                          ? { x: state.normalizedLandmarks[a].x, y: state.normalizedLandmarks[a].y }
-                          : lastKnownJointsRef.current[a]
-                            ? { x: lastKnownJointsRef.current[a].x, y: lastKnownJointsRef.current[a].y }
-                            : undefined;
-
-                        limbs[side] = [hipPt, selectedAnchor, anklePt].filter(
-                          (p): p is { x: number; y: number } => Boolean(p)
-                        );
-
-                        console.log(`[CameraView] Initialized ${side} knee:`, {
-                          side,
-                          anchor: { x: Number(selectedAnchor.x.toFixed(4)), y: Number(selectedAnchor.y.toFixed(4)) },
-                          source,
-                          confidence: Number(confidence.toFixed(2)),
-                          age: `${ageMs}ms`,
-                          frameDimensions: `${video.videoWidth}x${video.videoHeight}`,
-                          status: "accepted",
-                        });
-                      } else {
-                        console.warn(`[CameraView] Skipped ${side} knee (no fresh observation <= 150ms):`, {
-                          side,
-                          source: "none",
-                          status: "skipped",
-                          frameDimensions: `${video.videoWidth}x${video.videoHeight}`,
-                        });
-                      }
-                    }
-
-                    // only initialize if at least one valid anchor was found
-                    if (Object.keys(anchors).length > 0) {
-                      slamTrackerRef.current.initAnchor(evt.imageBitmap, anchors, limbs);
-                    } else {
-                      console.warn("[CameraView] Optical flow initialization skipped: no valid knee anchors available");
-                      evt.imageBitmap.close();
-                    }
-                  } else {
-                    slamTrackerRef.current.trackFrame(evt.imageBitmap);
-                  }
-                } else if (!evt.triggered && slamTrackerRef.current.hasActiveTracker()) {
-                  slamTrackerRef.current.resetTracker();
-                  invalidateJointCache();
-                }
-              })
-              .finally(() => {
-                inFlightRef.current = false;
-              });
-          } else if (!state?.normalizedLandmarks) {
-            setFallbackStatus((prev) => {
-              if (prev?.triggered === true && prev.joint === "both legs" && prev.confidence === 0) {
-                return prev;
-              }
-              return { triggered: true, joint: "both legs", sidesToTrack: ["left", "right"], confidence: 0 };
-            });
+            try {
+              // capture zero-copy ImageBitmap from video
+              const bitmap = await createImageBitmap(video);
+              // transfer bitmap ownership to worker
+              workerRef.current.postMessage(
+                { type: "PROCESS_FRAME", imageBitmap: bitmap },
+                [bitmap]
+              );
+            } catch {
+              inFlightRef.current = false;
+            }
           }
+
+          // process latest keypoints through pose engine
+          const state = engineRef.current.processKeypoints(
+            latestKeypointsRef.current,
+            isFrontalRef.current
+          );
 
           // clear canvas frame
           ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -308,30 +218,22 @@ export default function CameraView({
           ctx.translate(canvas.width, 0);
           ctx.scale(-1, 1);
           if (state?.normalizedLandmarks) {
-            drawSkeleton(ctx, state.normalizedLandmarks, canvas.width, canvas.height, filterSideRef.current);
+            drawSkeleton(
+              ctx,
+              state.normalizedLandmarks,
+              canvas.width,
+              canvas.height,
+              filterSideRef.current
+            );
           }
           ctx.restore();
-
-          // draw SLAM optical flow target crosshairs matching side colors when tracking or recovering
-          const isTrackingOrUncertain =
-            slamTrackerRef.current.lifecycle === "TRACKING" ||
-            slamTrackerRef.current.lifecycle === "UNCERTAIN";
-          if (isTrackingOrUncertain && slamTrackerRef.current.trackedPoints) {
-            const pts = slamTrackerRef.current.trackedPoints;
-            if (pts.left) {
-              drawSlamAnchorCrosshair(ctx, pts.left, canvas.width, canvas.height, "left");
-            }
-            if (pts.right) {
-              drawSlamAnchorCrosshair(ctx, pts.right, canvas.width, canvas.height, "right");
-            }
-          }
 
           // draw HUD text un-mirrored so it reads left-to-right
           if (renderHudRef.current) {
             renderHudRef.current(ctx, state, canvas.width, canvas.height);
           }
 
-          // fire onFrame state notification to parent
+          // notify parent component of state change
           if (onFrameRef.current) {
             onFrameRef.current(state);
           }
@@ -347,7 +249,7 @@ export default function CameraView({
       isRunning = false;
       cancelAnimationFrame(animId);
     };
-  }, []);
+  }, [workerReady]);
 
   if (cameraError) {
     return (
@@ -383,53 +285,49 @@ export default function CameraView({
       <canvas
         ref={canvasRef}
       />
-      {fallbackStatus && (
-        <div
-          className="fallback-hud-badge"
+
+      {/* Model status badge */}
+      <div
+        className="fallback-hud-badge"
+        style={{
+          position: "absolute",
+          top: "14px",
+          right: "14px",
+          padding: "5px 12px",
+          borderRadius: "6px",
+          fontSize: "0.76rem",
+          fontWeight: 500,
+          letterSpacing: "0.01em",
+          fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+          display: "flex",
+          alignItems: "center",
+          gap: "7px",
+          backdropFilter: "blur(12px)",
+          WebkitBackdropFilter: "blur(12px)",
+          zIndex: 10,
+          border: "1px solid rgba(137, 66, 155, 0.4)",
+          background: "rgba(24, 15, 30, 0.75)",
+          color: "#ffffff",
+          boxShadow: "0 2px 8px rgba(0, 0, 0, 0.3)",
+          pointerEvents: "none",
+          transition: "all 0.2s ease",
+        }}
+      >
+        <span
           style={{
-            position: "absolute",
-            top: "14px",
-            right: "14px",
-            padding: "5px 12px",
-            borderRadius: "6px",
-            fontSize: "0.76rem",
-            fontWeight: 500,
-            letterSpacing: "0.01em",
-            fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-            display: "flex",
-            alignItems: "center",
-            gap: "7px",
-            backdropFilter: "blur(12px)",
-            WebkitBackdropFilter: "blur(12px)",
-            zIndex: 10,
-            border: "1px solid rgba(137, 66, 155, 0.4)",
-            background: "rgba(24, 15, 30, 0.75)",
-            color: "#ffffff",
-            boxShadow: "0 2px 8px rgba(0, 0, 0, 0.3)",
-            pointerEvents: "none",
-            transition: "all 0.2s ease",
+            width: "6px",
+            height: "6px",
+            borderRadius: "50%",
+            backgroundColor: workerReady ? "#22c55e" : "#eab308",
+            flexShrink: 0,
           }}
-        >
-          <span
-            style={{
-              width: "6px",
-              height: "6px",
-              borderRadius: "50%",
-              backgroundColor: "#89429b",
-              flexShrink: 0,
-            }}
-          />
-          {fallbackStatus.triggered ? (
-            <span>
-              Optical Fallback • {(fallbackStatus.confidence * 100).toFixed(0)}%
-            </span>
-          ) : (
-            <span>
-              Pose Tracking • {(fallbackStatus.confidence * 100).toFixed(0)}%
-            </span>
-          )}
-        </div>
-      )}
+        />
+        <span>
+          {workerReady
+            ? `YOLOv8-Pose • ${activeProvider.toUpperCase()} (${inferenceFps} FPS)`
+            : "Loading YOLOv8..."}
+        </span>
+      </div>
     </div>
   );
 }
