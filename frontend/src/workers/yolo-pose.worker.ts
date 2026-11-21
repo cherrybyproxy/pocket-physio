@@ -1,4 +1,4 @@
-import * as ort from "onnxruntime-web/webgpu";
+import * as ort from "onnxruntime-web";
 import type {
   YoloWorkerRequest,
   YoloWorkerResponse,
@@ -10,8 +10,8 @@ import { PoseKeypointFilter } from "../engine/oneEuroFilter";
 // this prevents Vite dev server from intercepting .mjs dynamic imports as source code
 ort.env.wasm.wasmPaths =
   "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.31.1/dist/";
-// set thread count to 2 for web worker stability
-ort.env.wasm.numThreads = 2;
+// use single thread to keep memory footprint minimal and avoid virtual address exhaustion
+ort.env.wasm.numThreads = 1;
 
 let session: ort.InferenceSession | null = null;
 let activeProvider: "webgpu" | "wasm" = "wasm";
@@ -47,7 +47,7 @@ async function initModel(modelSource: string | ArrayBuffer = "/models/yolov8n-po
         ? modelSource
         : new Uint8Array(modelSource);
 
-    // try WebGPU first for maximum hardware inference performance
+    // try WebGPU first for maximum 30+ FPS hardware acceleration
     try {
       session = await (ort.InferenceSession.create as any)(modelData, {
         executionProviders: ["webgpu"],
@@ -108,8 +108,12 @@ function preprocess(imageBitmap: ImageBitmap): {
   ctx.fillStyle = "rgb(114, 114, 114)";
   ctx.fillRect(0, 0, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE);
 
-  // draw scaled image centered
-  ctx.drawImage(imageBitmap, padX, padY, newW, newH);
+  // draw scaled image centered and ensure bitmap GPU surface is closed immediately
+  try {
+    ctx.drawImage(imageBitmap, padX, padY, newW, newH);
+  } finally {
+    imageBitmap.close();
+  }
 
   const imgData = ctx.getImageData(0, 0, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE);
   const rgba = imgData.data;
@@ -151,14 +155,45 @@ function postprocess(
   const numCandidates = 8400;
 
   let bestBoxIdx = -1;
-  let maxScore = 0.25; // person detection threshold
+  let bestQuality = 0;
 
-  // find the candidate person box with the highest confidence
+  // find the candidate person box with highest full-body and lower-limb quality
   for (let c = 0; c < numCandidates; c++) {
-    const score = data[4 * numCandidates + c];
-    if (score > maxScore) {
-      maxScore = score;
+    const boxScore = data[4 * numCandidates + c];
+    if (boxScore < 0.20) continue;
+
+    const w = data[2 * numCandidates + c];
+    const h = data[3 * numCandidates + c];
+    const area = w * h;
+    // reject tiny partial boxes (must have reasonable person scale)
+    if (area < 2500) continue;
+
+    // measure keypoint confidence across hips, knees, and ankles (COCO indices 11, 12, 13, 14, 15, 16)
+    const lHipS = data[(5 + 11 * 3 + 2) * numCandidates + c];
+    const rHipS = data[(5 + 12 * 3 + 2) * numCandidates + c];
+    const lKneeS = data[(5 + 13 * 3 + 2) * numCandidates + c];
+    const rKneeS = data[(5 + 14 * 3 + 2) * numCandidates + c];
+    const lAnkS = data[(5 + 15 * 3 + 2) * numCandidates + c];
+    const rAnkS = data[(5 + 16 * 3 + 2) * numCandidates + c];
+
+    const legKeypointScore = (lHipS + rHipS + lKneeS + rKneeS + lAnkS + rAnkS) / 6.0;
+    const quality = boxScore * 0.4 + legKeypointScore * 0.6;
+
+    if (quality > bestQuality) {
+      bestQuality = quality;
       bestBoxIdx = c;
+    }
+  }
+
+  // fallback to highest box score if no candidate passed the strict area filter
+  if (bestBoxIdx === -1) {
+    let maxScore = 0.25;
+    for (let c = 0; c < numCandidates; c++) {
+      const score = data[4 * numCandidates + c];
+      if (score > maxScore) {
+        maxScore = score;
+        bestBoxIdx = c;
+      }
     }
   }
 
@@ -176,8 +211,8 @@ function postprocess(
     const rawX = data[kxIdx];
     const rawY = data[kyIdx];
     const rawScore = data[kScoreIdx];
-    // YOLO keypoint visibility values in ONNX exports are raw logits; apply sigmoid to get true probability
-    const kScore = 1.0 / (1.0 + Math.exp(-rawScore));
+    // YOLO keypoint visibility scores in this ONNX export are direct probabilities [0, 1]
+    const kScore = Math.max(0, Math.min(1, rawScore));
 
     // un-letterbox: remove padding and rescale back to original image space
     const unpaddedX = (rawX - padX) / scale;
@@ -220,9 +255,10 @@ self.onmessage = async (e: MessageEvent<YoloWorkerRequest>) => {
     }
 
     const startTime = performance.now();
+    let tensor: ort.Tensor | null = null;
     try {
-      const { tensor, scale, padX, padY, origW, origH } = preprocess(imageBitmap);
-      imageBitmap.close(); // clean up GPU/memory transfer bitmap immediately
+      const prep = preprocess(imageBitmap);
+      tensor = prep.tensor;
 
       // fetch input name dynamically from loaded ONNX session
       const inputName = session.inputNames[0];
@@ -230,10 +266,18 @@ self.onmessage = async (e: MessageEvent<YoloWorkerRequest>) => {
       feeds[inputName] = tensor;
 
       const results = await session.run(feeds);
-      const outputName = session.outputNames[0];
-      const outputTensor = results[outputName];
+      let keypoints: Keypoint[] | null = null;
+      try {
+        const outputName = session.outputNames[0];
+        const outputTensor = results[outputName];
+        keypoints = postprocess(outputTensor, prep.scale, prep.padX, prep.padY, prep.origW, prep.origH);
+      } finally {
+        // immediately dispose all output tensors to release WebGPU buffers from VRAM
+        for (const name of Object.keys(results)) {
+          results[name]?.dispose?.();
+        }
+      }
 
-      const keypoints = postprocess(outputTensor, scale, padX, padY, origW, origH);
       const inferenceTimeMs = performance.now() - startTime;
 
       const response: YoloWorkerResponse = {
@@ -250,6 +294,9 @@ self.onmessage = async (e: MessageEvent<YoloWorkerRequest>) => {
         message: err?.message || "Inference error",
       };
       self.postMessage(response);
+    } finally {
+      // immediately dispose input tensor to release WebGPU buffers from VRAM
+      tensor?.dispose?.();
     }
   }
 };

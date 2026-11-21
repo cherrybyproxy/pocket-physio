@@ -6,7 +6,7 @@ import type { Keypoint, PoseKeypoints } from "../types/yoloPose";
 import { COCO_KEYPOINTS } from "../types/yoloPose";
 
 // minimum per-landmark confidence score to trust a joint coordinate
-const CONFIDENCE_THRESHOLD = 0.10;
+const CONFIDENCE_THRESHOLD = 0.25;
 
 export interface NormalizedLandmark {
   x: number;
@@ -115,11 +115,11 @@ export class PoseEngine {
     const shinLen = Math.hypot(currX - knee.x, currY - knee.y);
 
     if (prev && femurLen > 0.05) {
-      // 1. if ankle collapsed up toward the knee (pants hem misdetected as ankle), hold previous valid position
-      if (shinLen < 0.38 * femurLen) {
+      // 1. if ankle collapsed up toward the knee or confidence is low, hold previous valid position
+      if (shinLen < 0.38 * femurLen || conf < 0.20) {
         currX = prev[0];
         currY = prev[1];
-        conf = Math.max(conf, 0.45);
+        conf = Math.max(conf, 0.40);
       } else {
         // 2. reject outlier jumps by clamping maximum displacement to 8% of screen per frame
         const dx = currX - prev[0];
@@ -133,7 +133,7 @@ export class PoseEngine {
         }
 
         // 3. smooth temporal blending: confident detections update swiftly, low confidence smooths heavily
-        const blend = Math.max(0.18, Math.min(0.70, conf));
+        const blend = Math.max(0.25, Math.min(0.85, conf));
         currX = blend * currX + (1 - blend) * prev[0];
         currY = blend * currY + (1 - blend) * prev[1];
       }

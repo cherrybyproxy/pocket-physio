@@ -45,6 +45,7 @@ export default function CameraView({
   const [workerReady, setWorkerReady] = useState(false);
   const [inferenceFps, setInferenceFps] = useState<number>(0);
   const [activeProvider, setActiveProvider] = useState<string>("wasm");
+  const lastFpsUpdateRef = useRef<number>(0);
 
   // YOLO pose web worker reference
   const workerRef = useRef<Worker | null>(null);
@@ -90,9 +91,14 @@ export default function CameraView({
         latestKeypointsRef.current = msg.keypoints;
         inFlightRef.current = false;
 
+        // throttle FPS state update to once every second to prevent continuous React re-renders
         if (msg.inferenceTimeMs > 0) {
-          const fps = Math.round(1000 / msg.inferenceTimeMs);
-          setInferenceFps(fps);
+          const now = performance.now();
+          if (now - lastFpsUpdateRef.current >= 1000) {
+            lastFpsUpdateRef.current = now;
+            const fps = Math.round(1000 / msg.inferenceTimeMs);
+            setInferenceFps(fps);
+          }
         }
       } else if (msg.type === "ERROR") {
         console.error("[CameraView] YOLO Worker error:", msg.message);
@@ -192,13 +198,24 @@ export default function CameraView({
           ) {
             inFlightRef.current = true;
             try {
-              // capture zero-copy ImageBitmap from video
-              const bitmap = await createImageBitmap(video);
-              // transfer bitmap ownership to worker
-              workerRef.current.postMessage(
-                { type: "PROCESS_FRAME", imageBitmap: bitmap },
-                [bitmap]
-              );
+              // capture scaled ImageBitmap from video using GPU hardware scaler (4x less memory transfer)
+              const targetW = 640;
+              const targetH = Math.max(360, Math.round(640 * (video.videoHeight / video.videoWidth)));
+              const bitmap = await createImageBitmap(video, {
+                resizeWidth: targetW,
+                resizeHeight: targetH,
+                resizeQuality: "low",
+              });
+              try {
+                // transfer bitmap ownership to worker
+                workerRef.current.postMessage(
+                  { type: "PROCESS_FRAME", imageBitmap: bitmap },
+                  [bitmap]
+                );
+              } catch (postErr) {
+                bitmap.close();
+                inFlightRef.current = false;
+              }
             } catch {
               inFlightRef.current = false;
             }
