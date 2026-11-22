@@ -1,7 +1,7 @@
 // core component: acquires webcam, transfers frames to yolo-pose.worker.ts,
 // and renders the skeleton overlay + hud on an html5 canvas stacked on top of the video.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import type { PoseEngine, PoseState } from "../engine/poseEngine";
 import { drawSkeleton } from "../engine/drawUtils";
 import type {
@@ -46,6 +46,7 @@ export default function CameraView({
   const [inferenceFps, setInferenceFps] = useState<number>(0);
   const [activeProvider, setActiveProvider] = useState<string>("wasm");
   const lastFpsUpdateRef = useRef<number>(0);
+  const sendNextFrameRef = useRef<() => void>(() => {});
 
   // YOLO pose web worker reference
   const workerRef = useRef<Worker | null>(null);
@@ -100,6 +101,9 @@ export default function CameraView({
             setInferenceFps(fps);
           }
         }
+
+        // immediately dispatch next camera frame to keep GPU pipeline 100% saturated
+        sendNextFrameRef.current();
       } else if (msg.type === "ERROR") {
         console.error("[CameraView] YOLO Worker error:", msg.message);
         inFlightRef.current = false;
@@ -160,12 +164,52 @@ export default function CameraView({
     };
   }, []);
 
-  // continuous RAF animation and video frame pipeline
+  // continuous pipeline dispatcher: sends next camera frame as soon as worker is ready
+  const sendNextFrame = useCallback(async () => {
+    const worker = workerRef.current;
+    const video = videoRef.current;
+    if (
+      !worker ||
+      !workerReady ||
+      inFlightRef.current ||
+      !video ||
+      video.readyState < 2 ||
+      video.videoWidth === 0
+    ) {
+      return;
+    }
+
+    inFlightRef.current = true;
+    try {
+      // capture scaled ImageBitmap from video using GPU hardware scaler (4x less memory transfer)
+      const targetW = 640;
+      const targetH = Math.max(360, Math.round(640 * (video.videoHeight / video.videoWidth)));
+      const bitmap = await createImageBitmap(video, {
+        resizeWidth: targetW,
+        resizeHeight: targetH,
+        resizeQuality: "low",
+      });
+      try {
+        worker.postMessage(
+          { type: "PROCESS_FRAME", imageBitmap: bitmap },
+          [bitmap]
+        );
+      } catch {
+        bitmap.close();
+        inFlightRef.current = false;
+      }
+    } catch {
+      inFlightRef.current = false;
+    }
+  }, [workerReady]);
+  sendNextFrameRef.current = sendNextFrame;
+
+  // continuous synchronous 60 FPS canvas rendering loop (zero VSync stalls)
   useEffect(() => {
     let isRunning = true;
     let animId = 0;
 
-    async function renderLoop() {
+    function renderLoop() {
       if (!isRunning) return;
 
       const video = videoRef.current;
@@ -189,36 +233,9 @@ export default function CameraView({
 
         const ctx = canvas.getContext("2d");
         if (ctx) {
-          // send new frame to worker if not currently busy
-          if (
-            workerRef.current &&
-            workerReady &&
-            !inFlightRef.current &&
-            video.videoWidth > 0
-          ) {
-            inFlightRef.current = true;
-            try {
-              // capture scaled ImageBitmap from video using GPU hardware scaler (4x less memory transfer)
-              const targetW = 640;
-              const targetH = Math.max(360, Math.round(640 * (video.videoHeight / video.videoWidth)));
-              const bitmap = await createImageBitmap(video, {
-                resizeWidth: targetW,
-                resizeHeight: targetH,
-                resizeQuality: "low",
-              });
-              try {
-                // transfer bitmap ownership to worker
-                workerRef.current.postMessage(
-                  { type: "PROCESS_FRAME", imageBitmap: bitmap },
-                  [bitmap]
-                );
-              } catch (postErr) {
-                bitmap.close();
-                inFlightRef.current = false;
-              }
-            } catch {
-              inFlightRef.current = false;
-            }
+          // pump worker pipeline if idle
+          if (!inFlightRef.current && workerReady) {
+            sendNextFrameRef.current();
           }
 
           // process latest keypoints through pose engine

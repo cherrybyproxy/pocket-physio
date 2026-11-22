@@ -20,21 +20,27 @@ const keypointFilter = new PoseKeypointFilter(17, 1.2, 0.007);
 const MODEL_INPUT_SIZE = 640;
 const pixelCount = MODEL_INPUT_SIZE * MODEL_INPUT_SIZE;
 // pre-allocated static buffer to avoid continuous memory reallocation and GC spikes
+// pre-filled with standard YOLO letterbox gray (114 / 255.0)
 const preallocatedFloat32 = new Float32Array(3 * pixelCount);
+preallocatedFloat32.fill(114 / 255.0);
 
 // offscreen canvas for letterboxing preprocessing
 let offscreenCanvas: OffscreenCanvas | null = null;
 let offscreenCtx: OffscreenCanvasRenderingContext2D | null = null;
 
-function getCanvas(): {
+function getCanvas(width = MODEL_INPUT_SIZE, height = MODEL_INPUT_SIZE): {
   canvas: OffscreenCanvas;
   ctx: OffscreenCanvasRenderingContext2D;
 } {
   if (!offscreenCanvas || !offscreenCtx) {
-    offscreenCanvas = new OffscreenCanvas(MODEL_INPUT_SIZE, MODEL_INPUT_SIZE);
+    offscreenCanvas = new OffscreenCanvas(width, height);
     offscreenCtx = offscreenCanvas.getContext("2d", {
       willReadFrequently: true,
     }) as OffscreenCanvasRenderingContext2D;
+  }
+  if (offscreenCanvas.width !== width || offscreenCanvas.height !== height) {
+    offscreenCanvas.width = width;
+    offscreenCanvas.height = height;
   }
   return { canvas: offscreenCanvas, ctx: offscreenCtx };
 }
@@ -95,36 +101,40 @@ function preprocess(imageBitmap: ImageBitmap): {
 } {
   const origW = imageBitmap.width;
   const origH = imageBitmap.height;
-  const { ctx } = getCanvas();
 
   // compute aspect-ratio letterbox scaling
   const scale = Math.min(MODEL_INPUT_SIZE / origW, MODEL_INPUT_SIZE / origH);
   const newW = Math.round(origW * scale);
   const newH = Math.round(origH * scale);
-  const padX = (MODEL_INPUT_SIZE - newW) / 2;
-  const padY = (MODEL_INPUT_SIZE - newH) / 2;
+  const padX = Math.round((MODEL_INPUT_SIZE - newW) / 2);
+  const padY = Math.round((MODEL_INPUT_SIZE - newH) / 2);
 
-  // fill padding background (YOLO standard gray 114)
-  ctx.fillStyle = "rgb(114, 114, 114)";
-  ctx.fillRect(0, 0, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE);
+  // use offscreen canvas sized to newW x newH so getImageData only reads active pixels
+  const { ctx } = getCanvas(newW, newH);
 
-  // draw scaled image centered and ensure bitmap GPU surface is closed immediately
+  // draw scaled image and ensure bitmap GPU surface is closed immediately
   try {
-    ctx.drawImage(imageBitmap, padX, padY, newW, newH);
+    ctx.drawImage(imageBitmap, 0, 0, newW, newH);
   } finally {
     imageBitmap.close();
   }
 
-  const imgData = ctx.getImageData(0, 0, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE);
+  const imgData = ctx.getImageData(0, 0, newW, newH);
   const rgba = imgData.data;
 
-  // convert HWC (RGBA) to CHW (RGB) normalized to [0.0, 1.0] with fast stride loop
+  // copy active image rows into preallocatedFloat32 centered with gray padding
   const inv255 = 1.0 / 255.0;
   const p2 = 2 * pixelCount;
-  for (let i = 0, i4 = 0; i < pixelCount; i++, i4 += 4) {
-    preallocatedFloat32[i] = rgba[i4] * inv255; // channel 0: R
-    preallocatedFloat32[pixelCount + i] = rgba[i4 + 1] * inv255; // channel 1: G
-    preallocatedFloat32[p2 + i] = rgba[i4 + 2] * inv255; // channel 2: B
+  for (let y = 0; y < newH; y++) {
+    const srcRowOffset = y * newW * 4;
+    const dstRowOffset = (padY + y) * MODEL_INPUT_SIZE + padX;
+    for (let x = 0; x < newW; x++) {
+      const i4 = srcRowOffset + x * 4;
+      const dstIdx = dstRowOffset + x;
+      preallocatedFloat32[dstIdx] = rgba[i4] * inv255; // channel 0: R
+      preallocatedFloat32[pixelCount + dstIdx] = rgba[i4 + 1] * inv255; // channel 1: G
+      preallocatedFloat32[p2 + dstIdx] = rgba[i4 + 2] * inv255; // channel 2: B
+    }
   }
 
   const tensor = new ort.Tensor("float32", preallocatedFloat32, [
@@ -154,29 +164,40 @@ function postprocess(
   // tensor shape: [1, 56, 8400]
   const numCandidates = 8400;
 
+  // precompute row stride offsets to maximize CPU cache locality
+  const rowW = 2 * numCandidates;
+  const rowH = 3 * numCandidates;
+  const rowBoxScore = 4 * numCandidates;
+  const rowLHip = (5 + 11 * 3 + 2) * numCandidates;
+  const rowRHip = (5 + 12 * 3 + 2) * numCandidates;
+  const rowLKnee = (5 + 13 * 3 + 2) * numCandidates;
+  const rowRKnee = (5 + 14 * 3 + 2) * numCandidates;
+  const rowLAnk = (5 + 15 * 3 + 2) * numCandidates;
+  const rowRAnk = (5 + 16 * 3 + 2) * numCandidates;
+
   let bestBoxIdx = -1;
   let bestQuality = 0;
 
   // find the candidate person box with highest full-body and lower-limb quality
   for (let c = 0; c < numCandidates; c++) {
-    const boxScore = data[4 * numCandidates + c];
+    const boxScore = data[rowBoxScore + c];
     if (boxScore < 0.20) continue;
 
-    const w = data[2 * numCandidates + c];
-    const h = data[3 * numCandidates + c];
+    const w = data[rowW + c];
+    const h = data[rowH + c];
     const area = w * h;
     // reject tiny partial boxes (must have reasonable person scale)
     if (area < 2500) continue;
 
     // measure keypoint confidence across hips, knees, and ankles (COCO indices 11, 12, 13, 14, 15, 16)
-    const lHipS = data[(5 + 11 * 3 + 2) * numCandidates + c];
-    const rHipS = data[(5 + 12 * 3 + 2) * numCandidates + c];
-    const lKneeS = data[(5 + 13 * 3 + 2) * numCandidates + c];
-    const rKneeS = data[(5 + 14 * 3 + 2) * numCandidates + c];
-    const lAnkS = data[(5 + 15 * 3 + 2) * numCandidates + c];
-    const rAnkS = data[(5 + 16 * 3 + 2) * numCandidates + c];
-
-    const legKeypointScore = (lHipS + rHipS + lKneeS + rKneeS + lAnkS + rAnkS) / 6.0;
+    const legKeypointScore =
+      (data[rowLHip + c] +
+        data[rowRHip + c] +
+        data[rowLKnee + c] +
+        data[rowRKnee + c] +
+        data[rowLAnk + c] +
+        data[rowRAnk + c]) /
+      6.0;
     const quality = boxScore * 0.4 + legKeypointScore * 0.6;
 
     if (quality > bestQuality) {
@@ -189,7 +210,7 @@ function postprocess(
   if (bestBoxIdx === -1) {
     let maxScore = 0.25;
     for (let c = 0; c < numCandidates; c++) {
-      const score = data[4 * numCandidates + c];
+      const score = data[rowBoxScore + c];
       if (score > maxScore) {
         maxScore = score;
         bestBoxIdx = c;
