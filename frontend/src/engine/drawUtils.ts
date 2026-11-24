@@ -248,55 +248,217 @@ export function drawTargetArcGauge(
   ctx.restore();
 }
 
-// SLAM optical flow tracking crosshair matching tracked side color
-export function drawSlamAnchorCrosshair(
+// visual overlays for frontal diagnostics:
+// 1. hip-to-ankle plumb line (dashed mechanical reference axis)
+// 2. knee deviation vector (valgus inward collapse or varus outward bowing)
+// 3. pelvic horizontal tilt line (hip drop relative to level horizontal)
+export function drawFrontalDiagnostics(
   ctx: CanvasRenderingContext2D,
-  point: { x: number; y: number },
+  landmarks: NormalizedLandmark[],
   width: number,
   height: number,
-  side?: "left" | "right" | string
+  filterSide?: "left" | "right" | "all"
 ): void {
-  const px = point.x * width;
-  const py = point.y * height;
-  const size = 18;
+  if (!landmarks || landmarks.length === 0) return;
 
-  const isRight = side === "right" || side?.includes("right");
-  const color = isRight ? "#4292C6" : "#AC3834";
-  const strokeColor = isRight ? "rgba(66, 146, 198, 0.85)" : "rgba(172, 56, 52, 0.85)";
+  const lHip = landmarks[COCO_KEYPOINTS.LEFT_HIP];
+  const rHip = landmarks[COCO_KEYPOINTS.RIGHT_HIP];
+  const lKnee = landmarks[COCO_KEYPOINTS.LEFT_KNEE];
+  const rKnee = landmarks[COCO_KEYPOINTS.RIGHT_KNEE];
+  const lAnkle = landmarks[COCO_KEYPOINTS.LEFT_ANKLE];
+  const rAnkle = landmarks[COCO_KEYPOINTS.RIGHT_ANKLE];
 
   ctx.save();
-  ctx.translate(width, 0);
-  ctx.scale(-1, 1);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
 
-  // outer glowing ring
-  ctx.beginPath();
-  ctx.arc(px, py, size, 0, 2 * Math.PI);
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = strokeColor;
-  ctx.setLineDash([4, 4]);
-  ctx.stroke();
+  // 1. pelvic horizontal tilt line (hip drop)
+  const lHipVis = lHip?.visibility ?? 0;
+  const rHipVis = rHip?.visibility ?? 0;
 
-  // inner target circle
-  ctx.beginPath();
-  ctx.arc(px, py, 4, 0, 2 * Math.PI);
-  ctx.fillStyle = color;
-  ctx.fill();
+  if (lHip && rHip && lHipVis >= 0.25 && rHipVis >= 0.25) {
+    const lx = lHip.x * width;
+    const ly = lHip.y * height;
+    const rx = rHip.x * width;
+    const ry = rHip.y * height;
 
-  // crosshair ticks
-  ctx.setLineDash([]);
-  ctx.lineWidth = 1.5;
-  ctx.strokeStyle = color;
+    const midX = (lx + rx) / 2;
+    const midY = (ly + ry) / 2;
+    const hipSpan = Math.hypot(rx - lx, ry - ly);
 
-  ctx.beginPath();
-  ctx.moveTo(px - size - 4, py);
-  ctx.lineTo(px - size + 4, py);
-  ctx.moveTo(px + size - 4, py);
-  ctx.lineTo(px + size + 4, py);
-  ctx.moveTo(px, py - size - 4);
-  ctx.lineTo(px, py - size + 4);
-  ctx.moveTo(px, py + size - 4);
-  ctx.lineTo(px, py + size + 4);
-  ctx.stroke();
+    if (hipSpan > 15) {
+      // draw dashed horizontal level reference line across pelvic center
+      ctx.beginPath();
+      ctx.setLineDash([4, 4]);
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
+      ctx.moveTo(midX - hipSpan * 0.65, midY);
+      ctx.lineTo(midX + hipSpan * 0.65, midY);
+      ctx.stroke();
+
+      // actual pelvic tilt line connecting left and right hip
+      const dropDelta = Math.abs(ly - ry);
+      const isDropped = dropDelta > height * 0.015;
+
+      ctx.beginPath();
+      ctx.setLineDash([]);
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = isDropped ? "#f59e0b" : "rgba(255, 255, 255, 0.85)";
+      ctx.moveTo(lx, ly);
+      ctx.lineTo(rx, ry);
+      ctx.stroke();
+
+      // draw vertical drop marker from the lower hip to the horizontal reference plane
+      if (isDropped) {
+        const lowerY = Math.max(ly, ry);
+        const lowerX = ly > ry ? lx : rx;
+        ctx.beginPath();
+        ctx.setLineDash([2, 2]);
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = "#f59e0b";
+        ctx.moveTo(lowerX, midY);
+        ctx.lineTo(lowerX, lowerY);
+        ctx.stroke();
+      }
+
+      // pelvic midpoint dot
+      ctx.beginPath();
+      ctx.setLineDash([]);
+      ctx.arc(midX, midY, 3, 0, 2 * Math.PI);
+      ctx.fillStyle = isDropped ? "#f59e0b" : "#ffffff";
+      ctx.fill();
+    }
+  }
+
+  // 2. hip-to-ankle plumb line + knee deviation vector (valgus)
+  const legsToProcess: Array<{
+    side: "left" | "right";
+    hip: NormalizedLandmark | undefined;
+    knee: NormalizedLandmark | undefined;
+    ankle: NormalizedLandmark | undefined;
+    baseColor: string;
+  }> = [];
+
+  if (filterSide !== "right") {
+    legsToProcess.push({
+      side: "left",
+      hip: lHip,
+      knee: lKnee,
+      ankle: lAnkle,
+      baseColor: "#AC3834",
+    });
+  }
+
+  if (filterSide !== "left") {
+    legsToProcess.push({
+      side: "right",
+      hip: rHip,
+      knee: rKnee,
+      ankle: rAnkle,
+      baseColor: "#4292C6",
+    });
+  }
+
+  // pelvis center x for valgus vs varus lateral calculation
+  const pelvisCenterX = lHip && rHip ? ((lHip.x + rHip.x) / 2) * width : width / 2;
+
+  for (const leg of legsToProcess) {
+    const { hip, knee, ankle, baseColor } = leg;
+    if (!hip || !knee || !ankle) continue;
+    if (
+      (hip.visibility ?? 0) < 0.25 ||
+      (knee.visibility ?? 0) < 0.25 ||
+      (ankle.visibility ?? 0) < 0.25
+    ) {
+      continue;
+    }
+
+    const hx = hip.x * width;
+    const hy = hip.y * height;
+    const kx = knee.x * width;
+    const ky = knee.y * height;
+    const ax = ankle.x * width;
+    const ay = ankle.y * height;
+
+    // mechanical axis line segment from hip to ankle
+    const vax = ax - hx;
+    const vay = ay - hy;
+    const lenSq = vax * vax + vay * vay;
+    if (lenSq < 400) continue;
+
+    // draw dashed hip-to-ankle plumb line
+    ctx.beginPath();
+    ctx.setLineDash([5, 5]);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.45)";
+    ctx.moveTo(hx, hy);
+    ctx.lineTo(ax, ay);
+    ctx.stroke();
+
+    // calculate orthogonal projection of knee onto the plumb line
+    const t = Math.max(0, Math.min(1, ((kx - hx) * vax + (ky - hy) * vay) / lenSq));
+    const px = hx + t * vax;
+    const py = hy + t * vay;
+
+    // knee deviation vector
+    const devX = kx - px;
+    const devY = ky - py;
+    const devDist = Math.hypot(devX, devY);
+
+    // plumb line anchor point dot
+    ctx.beginPath();
+    ctx.setLineDash([]);
+    ctx.arc(px, py, 2.5, 0, 2 * Math.PI);
+    ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
+    ctx.fill();
+
+    // draw deviation vector line and arrow if offset exceeds threshold
+    if (devDist > 3) {
+      // check if knee collapsed medially toward body center line (valgus)
+      const distKneeToCenter = Math.abs(kx - pelvisCenterX);
+      const distPlumbToCenter = Math.abs(px - pelvisCenterX);
+      const isValgus = distKneeToCenter < distPlumbToCenter;
+
+      const isSubstantial = devDist > height * 0.02;
+      const vectorColor = isSubstantial
+        ? isValgus
+          ? "#ef4444"
+          : "#f59e0b"
+        : baseColor;
+
+      ctx.beginPath();
+      ctx.lineWidth = isSubstantial ? 2.5 : 2;
+      ctx.strokeStyle = vectorColor;
+      ctx.moveTo(px, py);
+      ctx.lineTo(kx, ky);
+      ctx.stroke();
+
+      // arrowhead at the knee joint indicating deviation pull
+      const angle = Math.atan2(devY, devX);
+      const headLen = Math.min(8, Math.max(4, devDist * 0.4));
+      ctx.beginPath();
+      ctx.moveTo(kx, ky);
+      ctx.lineTo(
+        kx - headLen * Math.cos(angle - Math.PI / 6),
+        ky - headLen * Math.sin(angle - Math.PI / 6)
+      );
+      ctx.moveTo(kx, ky);
+      ctx.lineTo(
+        kx - headLen * Math.cos(angle + Math.PI / 6),
+        ky - headLen * Math.sin(angle + Math.PI / 6)
+      );
+      ctx.stroke();
+
+      // glowing accent ring at knee if valgus inward collapse is detected
+      if (isValgus && isSubstantial) {
+        ctx.beginPath();
+        ctx.arc(kx, ky, 8, 0, 2 * Math.PI);
+        ctx.strokeStyle = vectorColor;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+    }
+  }
 
   ctx.restore();
 }

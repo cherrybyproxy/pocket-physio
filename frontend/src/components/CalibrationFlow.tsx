@@ -973,7 +973,11 @@ export default function CalibrationFlow({
     );
   }
 
-  const isFrontal = state.startsWith("auto_calibrate") || state === "mode_select" || state === "side_select";
+  const isFrontal =
+    state.startsWith("auto_calibrate") ||
+    state === "mode_select" ||
+    state === "side_select" ||
+    (state === "tracking" && trackingMode === "watcher");
   const filterSide: "left" | "right" | "all" =
     state === "manual_min_l" || state === "manual_max_l"
       ? "left"

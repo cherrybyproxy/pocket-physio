@@ -3,7 +3,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { PoseEngine, PoseState } from "../engine/poseEngine";
-import { drawSkeleton } from "../engine/drawUtils";
+import { drawSkeleton, drawFrontalDiagnostics } from "../engine/drawUtils";
 import type {
   YoloWorkerResponse,
   PoseKeypoints,
@@ -259,6 +259,17 @@ export default function CameraView({
               canvas.height,
               filterSideRef.current
             );
+
+            // draw frontal diagnostic overlays (plumb line, knee valgus, pelvic tilt)
+            if (isFrontalRef.current) {
+              drawFrontalDiagnostics(
+                ctx,
+                state.normalizedLandmarks,
+                canvas.width,
+                canvas.height,
+                filterSideRef.current
+              );
+            }
           }
           ctx.restore();
 
