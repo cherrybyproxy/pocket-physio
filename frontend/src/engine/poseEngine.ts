@@ -19,6 +19,9 @@ export interface PoseState {
   targetKneeAngle: number;
   leftKneeAngle: number;
   rightKneeAngle: number;
+  // side-on view alignment validation
+  isSideAligned: boolean;
+  sideAlignmentWarning: string | null;
   // estimated load bearing on injured leg (50 = symmetrical, <50 = offloaded to healthy, >50 = overloaded)
   weightDist: number;
   // trunk lean magnitude in degrees relative to vertical
@@ -81,6 +84,10 @@ export class PoseEngine {
   private prevAnkleL: Vec2 | null = null;
   private prevAnkleR: Vec2 | null = null;
 
+  // temporal side-on alignment memory
+  private prevShoulderRatio: number | null = null;
+  private prevHipRatio: number | null = null;
+
   // backwards-compatible dummy method for CameraView lifecycles
   async init(): Promise<void> {
     // model initialization is handled asynchronously in yolo-pose.worker.ts
@@ -95,6 +102,8 @@ export class PoseEngine {
     this.prevLean = null;
     this.prevAnkleL = null;
     this.prevAnkleR = null;
+    this.prevShoulderRatio = null;
+    this.prevHipRatio = null;
   }
 
   // stabilizes ankle tracking with outlier rejection and temporal continuity.
@@ -238,6 +247,34 @@ export class PoseEngine {
     const angleL = this.prevL ?? rawAngleL;
     const angleR = this.prevR ?? rawAngleR;
 
+    // side-on view alignment check:
+    // in side-on view, shoulders and hips overlap depth-wise (narrow horizontal span relative to torso height).
+    // if horizontal span is wide relative to torso height, user is facing camera which foreshortens 2D angles.
+    let isSideAligned = true;
+    let sideAlignmentWarning: string | null = null;
+
+    const shoulderSpan = Math.abs(lSh.x - rSh.x);
+    const hipSpan = Math.abs(lHip.x - rHip.x);
+    const torsoHeight = Math.hypot(
+      (lSh.x + rSh.x) / 2 - (lHip.x + rHip.x) / 2,
+      (lSh.y + rSh.y) / 2 - (lHip.y + rHip.y) / 2
+    );
+
+    if (torsoHeight > 0.08) {
+      const rawShoulderRatio = shoulderSpan / torsoHeight;
+      const rawHipRatio = hipSpan / torsoHeight;
+      this.prevShoulderRatio = applyEma(rawShoulderRatio, this.prevShoulderRatio, this.alpha);
+      this.prevHipRatio = applyEma(rawHipRatio, this.prevHipRatio, this.alpha);
+
+      const smoothShoulder = this.prevShoulderRatio ?? rawShoulderRatio;
+      const smoothHip = this.prevHipRatio ?? rawHipRatio;
+
+      if (smoothShoulder > 0.46 || smoothHip > 0.40) {
+        isSideAligned = false;
+        sideAlignmentWarning = "Turn 90° sideways to the camera";
+      }
+    }
+
     // always track strictly the selected target side (no jumping between legs)
     const targetAngle = this.injuredSide === "left" ? angleL : angleR;
 
@@ -282,6 +319,8 @@ export class PoseEngine {
       targetKneeAngle: targetAngle,
       leftKneeAngle: angleL,
       rightKneeAngle: angleR,
+      isSideAligned,
+      sideAlignmentWarning,
       weightDist: this.prevW ?? 50,
       bodyLean: this.prevLean ?? 0,
       leanDirection,

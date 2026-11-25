@@ -21,6 +21,10 @@ export interface TrackingFeedback {
   leanColor: string;
   leanText: string;
 
+  // side-on view alignment validation
+  isSideAligned: boolean;
+  sideAlignmentWarning: string | null;
+
   // repetition & tempo metrics
   repCount: number;
   flexRepCount: number; // completed knee bends
@@ -244,6 +248,8 @@ export class KinematicsTracker {
       leanDeg: leanDeg ?? 0,
       leanColor,
       leanText,
+      isSideAligned: data.isSideAligned,
+      sideAlignmentWarning: data.sideAlignmentWarning,
 
       repCount: this.repCount ?? 0,
       flexRepCount: this.flexRepCount ?? 0,

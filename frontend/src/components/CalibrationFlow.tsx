@@ -626,6 +626,10 @@ export default function CalibrationFlow({
           ? `LEFT: curr: ${Math.round(pose.leftKneeAngle)}°`
           : "LEFT: curr: --°";
         drawHudText(ctx, lStr, leftX, y, "#AC3834", fontSize);
+        if (anglesValid && !pose.isSideAligned) {
+          y += lineGap;
+          drawHudText(ctx, "Turn 90° sideways to the camera", leftX, y, "#89429b", fontSize);
+        }
       } else if (state === "manual_max_l") {
         const leftValid = anglesValid && pose.leftVisible && !isNaN(pose.leftKneeAngle);
         const instruction = leftValid
@@ -644,6 +648,10 @@ export default function CalibrationFlow({
           ? `LEFT: curr: ${Math.round(pose.leftKneeAngle)}°`
           : "LEFT: curr: --°";
         drawHudText(ctx, lStr, leftX, y, "#AC3834", fontSize);
+        if (anglesValid && !pose.isSideAligned) {
+          y += lineGap;
+          drawHudText(ctx, "Turn 90° sideways to the camera", leftX, y, "#89429b", fontSize);
+        }
       } else if (state === "manual_min_r") {
         const rightValid = anglesValid && pose.rightVisible && !isNaN(pose.rightKneeAngle);
         const instruction = rightValid
@@ -662,6 +670,10 @@ export default function CalibrationFlow({
           ? `RIGHT: curr: ${Math.round(pose.rightKneeAngle)}°`
           : "RIGHT: curr: --°";
         drawHudText(ctx, rStr, leftX, y, "#4292C6", fontSize);
+        if (anglesValid && !pose.isSideAligned) {
+          y += lineGap;
+          drawHudText(ctx, "Turn 90° sideways to the camera", leftX, y, "#89429b", fontSize);
+        }
       } else if (state === "manual_max_r") {
         const rightValid = anglesValid && pose.rightVisible && !isNaN(pose.rightKneeAngle);
         const instruction = rightValid
@@ -680,6 +692,10 @@ export default function CalibrationFlow({
           ? `RIGHT: curr: ${Math.round(pose.rightKneeAngle)}°`
           : "RIGHT: curr: --°";
         drawHudText(ctx, rStr, leftX, y, "#4292C6", fontSize);
+        if (anglesValid && !pose.isSideAligned) {
+          y += lineGap;
+          drawHudText(ctx, "Turn 90° sideways to the camera", leftX, y, "#89429b", fontSize);
+        }
       } else if (state === "tracking_mode_select") {
         drawHudText(
           ctx,
@@ -766,6 +782,17 @@ export default function CalibrationFlow({
           } else {
             hasTrainingDataRef.current = true;
             // Movement Trainer Mode: Target ROM Arc, Reps, Holds & Safety Disclaimer
+            if (!fb.isSideAligned) {
+              drawHudText(
+                ctx,
+                "Turn 90° sideways to the camera",
+                sideX,
+                y,
+                "#89429b",
+                fontSize
+              );
+              y += lineGap;
+            }
             if (pose.normalizedLandmarks) {
               ctx.save();
               ctx.translate(_width, 0);
