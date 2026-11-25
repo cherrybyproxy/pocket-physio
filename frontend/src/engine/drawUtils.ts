@@ -3,53 +3,52 @@
 // orange on left leg, teal on right leg, white on torso midline.
 // clean, crisp aesthetic without neon bloom.
 
-import type { NormalizedLandmark } from "./poseEngine";
-import { COCO_KEYPOINTS } from "../types/yoloPose";
+import { MEDIAPIPE_KEYPOINTS, type NormalizedLandmark } from "./poseEngine";
 
 interface ConnectionSpec {
   pair: [number, number];
   color: string;
 }
 
-// focused lower-body & torso pose connections using COCO 17 keypoint indices
+// focused lower-body & torso pose connections using MediaPipe keypoints
 const LOWER_BODY_CONNECTIONS: ConnectionSpec[] = [
-  // left leg (orange): hip (11) -> knee (13) -> ankle (15)
-  { pair: [COCO_KEYPOINTS.LEFT_HIP, COCO_KEYPOINTS.LEFT_KNEE], color: "#AC3834" },
-  { pair: [COCO_KEYPOINTS.LEFT_KNEE, COCO_KEYPOINTS.LEFT_ANKLE], color: "#AC3834" },
+  // left leg (orange): hip (23) -> knee (25) -> ankle (27)
+  { pair: [MEDIAPIPE_KEYPOINTS.LEFT_HIP, MEDIAPIPE_KEYPOINTS.LEFT_KNEE], color: "#AC3834" },
+  { pair: [MEDIAPIPE_KEYPOINTS.LEFT_KNEE, MEDIAPIPE_KEYPOINTS.LEFT_ANKLE], color: "#AC3834" },
 
-  // right leg (teal): hip (12) -> knee (14) -> ankle (16)
-  { pair: [COCO_KEYPOINTS.RIGHT_HIP, COCO_KEYPOINTS.RIGHT_KNEE], color: "#4292C6" },
-  { pair: [COCO_KEYPOINTS.RIGHT_KNEE, COCO_KEYPOINTS.RIGHT_ANKLE], color: "#4292C6" },
+  // right leg (teal): hip (24) -> knee (26) -> ankle (28)
+  { pair: [MEDIAPIPE_KEYPOINTS.RIGHT_HIP, MEDIAPIPE_KEYPOINTS.RIGHT_KNEE], color: "#4292C6" },
+  { pair: [MEDIAPIPE_KEYPOINTS.RIGHT_KNEE, MEDIAPIPE_KEYPOINTS.RIGHT_ANKLE], color: "#4292C6" },
 
   // torso frame (neutral white & side bounds)
-  { pair: [COCO_KEYPOINTS.LEFT_SHOULDER, COCO_KEYPOINTS.RIGHT_SHOULDER], color: "#ffffff" }, // shoulders (5, 6)
-  { pair: [COCO_KEYPOINTS.LEFT_HIP, COCO_KEYPOINTS.RIGHT_HIP], color: "#ffffff" }, // hips (11, 12)
-  { pair: [COCO_KEYPOINTS.LEFT_SHOULDER, COCO_KEYPOINTS.LEFT_HIP], color: "rgba(172, 56, 52, 0.7)" }, // left trunk
-  { pair: [COCO_KEYPOINTS.RIGHT_SHOULDER, COCO_KEYPOINTS.RIGHT_HIP], color: "rgba(66, 146, 198, 0.7)" }, // right trunk
+  { pair: [MEDIAPIPE_KEYPOINTS.LEFT_SHOULDER, MEDIAPIPE_KEYPOINTS.RIGHT_SHOULDER], color: "#ffffff" }, // shoulders (11, 12)
+  { pair: [MEDIAPIPE_KEYPOINTS.LEFT_HIP, MEDIAPIPE_KEYPOINTS.RIGHT_HIP], color: "#ffffff" }, // hips (23, 24)
+  { pair: [MEDIAPIPE_KEYPOINTS.LEFT_SHOULDER, MEDIAPIPE_KEYPOINTS.LEFT_HIP], color: "rgba(172, 56, 52, 0.7)" }, // left trunk
+  { pair: [MEDIAPIPE_KEYPOINTS.RIGHT_SHOULDER, MEDIAPIPE_KEYPOINTS.RIGHT_HIP], color: "rgba(66, 146, 198, 0.7)" }, // right trunk
 ];
 
-// visible joint landmark indices: shoulders (5, 6), hips (11, 12), knees (13, 14), ankles (15, 16)
+// visible joint landmark indices: shoulders (11, 12), hips (23, 24), knees (25, 26), ankles (27, 28)
 const VISIBLE_JOINTS = new Set<number>([
-  COCO_KEYPOINTS.LEFT_SHOULDER,
-  COCO_KEYPOINTS.RIGHT_SHOULDER,
-  COCO_KEYPOINTS.LEFT_HIP,
-  COCO_KEYPOINTS.RIGHT_HIP,
-  COCO_KEYPOINTS.LEFT_KNEE,
-  COCO_KEYPOINTS.RIGHT_KNEE,
-  COCO_KEYPOINTS.LEFT_ANKLE,
-  COCO_KEYPOINTS.RIGHT_ANKLE,
+  MEDIAPIPE_KEYPOINTS.LEFT_SHOULDER,
+  MEDIAPIPE_KEYPOINTS.RIGHT_SHOULDER,
+  MEDIAPIPE_KEYPOINTS.LEFT_HIP,
+  MEDIAPIPE_KEYPOINTS.RIGHT_HIP,
+  MEDIAPIPE_KEYPOINTS.LEFT_KNEE,
+  MEDIAPIPE_KEYPOINTS.RIGHT_KNEE,
+  MEDIAPIPE_KEYPOINTS.LEFT_ANKLE,
+  MEDIAPIPE_KEYPOINTS.RIGHT_ANKLE,
 ]);
 
 const LEFT_JOINTS = new Set<number>([
-  COCO_KEYPOINTS.LEFT_HIP,
-  COCO_KEYPOINTS.LEFT_KNEE,
-  COCO_KEYPOINTS.LEFT_ANKLE,
+  MEDIAPIPE_KEYPOINTS.LEFT_HIP,
+  MEDIAPIPE_KEYPOINTS.LEFT_KNEE,
+  MEDIAPIPE_KEYPOINTS.LEFT_ANKLE,
 ]);
 
 const RIGHT_JOINTS = new Set<number>([
-  COCO_KEYPOINTS.RIGHT_HIP,
-  COCO_KEYPOINTS.RIGHT_KNEE,
-  COCO_KEYPOINTS.RIGHT_ANKLE,
+  MEDIAPIPE_KEYPOINTS.RIGHT_HIP,
+  MEDIAPIPE_KEYPOINTS.RIGHT_KNEE,
+  MEDIAPIPE_KEYPOINTS.RIGHT_ANKLE,
 ]);
 
 // draw the clean pose skeleton (torso + legs only, no face or arms).
@@ -106,9 +105,9 @@ export function drawSkeleton(
     const v = lm.visibility ?? 1;
     if (v < 0.20) continue;
 
-    const isKnee = i === COCO_KEYPOINTS.LEFT_KNEE || i === COCO_KEYPOINTS.RIGHT_KNEE;
-    const isHip = i === COCO_KEYPOINTS.LEFT_HIP || i === COCO_KEYPOINTS.RIGHT_HIP;
-    const isAnkle = i === COCO_KEYPOINTS.LEFT_ANKLE || i === COCO_KEYPOINTS.RIGHT_ANKLE;
+    const isKnee = i === MEDIAPIPE_KEYPOINTS.LEFT_KNEE || i === MEDIAPIPE_KEYPOINTS.RIGHT_KNEE;
+    const isHip = i === MEDIAPIPE_KEYPOINTS.LEFT_HIP || i === MEDIAPIPE_KEYPOINTS.RIGHT_HIP;
+    const isAnkle = i === MEDIAPIPE_KEYPOINTS.LEFT_ANKLE || i === MEDIAPIPE_KEYPOINTS.RIGHT_ANKLE;
     const isKeyJoint = isKnee || isHip || isAnkle;
 
     const radius = isKeyJoint ? 6 : 4;
@@ -177,9 +176,9 @@ export function drawTargetArcGauge(
 ): void {
   if (!landmarks || landmarks.length === 0) return;
 
-  const kneeIdx = injuredSide === "left" ? COCO_KEYPOINTS.LEFT_KNEE : COCO_KEYPOINTS.RIGHT_KNEE;
-  const hipIdx = injuredSide === "left" ? COCO_KEYPOINTS.LEFT_HIP : COCO_KEYPOINTS.RIGHT_HIP;
-  const ankleIdx = injuredSide === "left" ? COCO_KEYPOINTS.LEFT_ANKLE : COCO_KEYPOINTS.RIGHT_ANKLE;
+  const kneeIdx = injuredSide === "left" ? MEDIAPIPE_KEYPOINTS.LEFT_KNEE : MEDIAPIPE_KEYPOINTS.RIGHT_KNEE;
+  const hipIdx = injuredSide === "left" ? MEDIAPIPE_KEYPOINTS.LEFT_HIP : MEDIAPIPE_KEYPOINTS.RIGHT_HIP;
+  const ankleIdx = injuredSide === "left" ? MEDIAPIPE_KEYPOINTS.LEFT_ANKLE : MEDIAPIPE_KEYPOINTS.RIGHT_ANKLE;
 
   const knee = landmarks[kneeIdx];
   const hip = landmarks[hipIdx];
@@ -261,12 +260,12 @@ export function drawFrontalDiagnostics(
 ): void {
   if (!landmarks || landmarks.length === 0) return;
 
-  const lHip = landmarks[COCO_KEYPOINTS.LEFT_HIP];
-  const rHip = landmarks[COCO_KEYPOINTS.RIGHT_HIP];
-  const lKnee = landmarks[COCO_KEYPOINTS.LEFT_KNEE];
-  const rKnee = landmarks[COCO_KEYPOINTS.RIGHT_KNEE];
-  const lAnkle = landmarks[COCO_KEYPOINTS.LEFT_ANKLE];
-  const rAnkle = landmarks[COCO_KEYPOINTS.RIGHT_ANKLE];
+  const lHip = landmarks[MEDIAPIPE_KEYPOINTS.LEFT_HIP];
+  const rHip = landmarks[MEDIAPIPE_KEYPOINTS.RIGHT_HIP];
+  const lKnee = landmarks[MEDIAPIPE_KEYPOINTS.LEFT_KNEE];
+  const rKnee = landmarks[MEDIAPIPE_KEYPOINTS.RIGHT_KNEE];
+  const lAnkle = landmarks[MEDIAPIPE_KEYPOINTS.LEFT_ANKLE];
+  const rAnkle = landmarks[MEDIAPIPE_KEYPOINTS.RIGHT_ANKLE];
 
   ctx.save();
   ctx.lineCap = "round";

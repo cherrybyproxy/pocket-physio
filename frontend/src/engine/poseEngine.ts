@@ -1,19 +1,30 @@
-// kinematics and pose estimation engine powered by YOLOv8-Pose (17 COCO keypoints).
-// calculates 2D planar joint angles on side-on view (knee ROM)
-// and lateral metrics on frontal view (trunk lean, weight offloading).
+// kinematics and pose estimation engine powered by MediaPipe PoseLandmarker (33 landmarks).
+// uses 3d metric world landmarks (origin at hip midpoint, metric units) for true 0° extension knee ROM,
+// smoothed with 1-euro adaptive speed filtering to completely silence resting jitter.
 
-import type { Keypoint, PoseKeypoints } from "../types/yoloPose";
-import { COCO_KEYPOINTS } from "../types/yoloPose";
+import {
+  PoseLandmarker,
+  FilesetResolver,
+  type NormalizedLandmark,
+} from "@mediapipe/tasks-vision";
+import { OneEuroFilter, PoseLandmarkFilter } from "./oneEuroFilter";
 
-// minimum per-landmark confidence score to trust a joint coordinate
-const CONFIDENCE_THRESHOLD = 0.25;
+export { type NormalizedLandmark };
 
-export interface NormalizedLandmark {
-  x: number;
-  y: number;
-  z?: number;
-  visibility?: number;
-}
+export const MEDIAPIPE_KEYPOINTS = {
+  LEFT_SHOULDER: 11,
+  RIGHT_SHOULDER: 12,
+  LEFT_HIP: 23,
+  RIGHT_HIP: 24,
+  LEFT_KNEE: 25,
+  RIGHT_KNEE: 26,
+  LEFT_ANKLE: 27,
+  RIGHT_ANKLE: 28,
+  LEFT_HEEL: 29,
+  RIGHT_HEEL: 30,
+  LEFT_FOOT_INDEX: 31,
+  RIGHT_FOOT_INDEX: 32,
+} as const;
 
 export interface PoseState {
   targetKneeAngle: number;
@@ -37,31 +48,19 @@ export interface PoseState {
   normalizedLandmarks: NormalizedLandmark[];
 }
 
+type Vec3 = [number, number, number];
 type Vec2 = [number, number];
 
-// 2D planar joint angle converted to standard clinical notation (0° = full extension, 180° = full flexion)
-function getAngle2d(a: Vec2, b: Vec2, c: Vec2): number {
-  const ba: Vec2 = [a[0] - b[0], a[1] - b[1]];
-  const bc: Vec2 = [c[0] - b[0], c[1] - b[1]];
-  const dot = ba[0] * bc[0] + ba[1] * bc[1];
-  const magBa = Math.sqrt(ba[0] ** 2 + ba[1] ** 2);
-  const magBc = Math.sqrt(bc[0] ** 2 + bc[1] ** 2);
+// 3d euclidean joint angle from metric world landmarks (0° = full extension, 180° = full flexion)
+function getAngle3d(a: Vec3, b: Vec3, c: Vec3): number {
+  const ba: Vec3 = [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+  const bc: Vec3 = [c[0] - b[0], c[1] - b[1], c[2] - b[2]];
+  const dot = ba[0] * bc[0] + ba[1] * bc[1] + ba[2] * bc[2];
+  const magBa = Math.sqrt(ba[0] ** 2 + ba[1] ** 2 + ba[2] ** 2);
+  const magBc = Math.sqrt(bc[0] ** 2 + bc[1] ** 2 + bc[2] ** 2);
   const cosine = Math.max(-1, Math.min(1, dot / (magBa * magBc || 1e-6)));
   const internalAngle = (Math.acos(cosine) * 180) / Math.PI;
   return Math.max(0, Math.min(180, 180 - internalAngle));
-}
-
-// verifies joint visibility: hip and knee must meet confidence; ankle coordinate must be finite
-function isLegTrackingValid(
-  hip?: Keypoint,
-  knee?: Keypoint,
-  ankle?: Keypoint
-): boolean {
-  if (!hip || !knee || !ankle) return false;
-  if (hip.score < CONFIDENCE_THRESHOLD || knee.score < CONFIDENCE_THRESHOLD) {
-    return false;
-  }
-  return Number.isFinite(ankle.x) && Number.isFinite(ankle.y);
 }
 
 // applies exponential moving average smoothing
@@ -72,184 +71,173 @@ function applyEma(curr: number, prev: number | null, alpha: number): number {
 
 export class PoseEngine {
   injuredSide: "left" | "right" = "left";
-  alpha = 0.35;
+  public alpha: number = 0.35;
+  private landmarker: PoseLandmarker | null = null;
+  private isInitializing = false;
+  private initPromise: Promise<void> | null = null;
+  private lastTimestampMs = -1;
 
-  // EMA temporal memory
-  private prevL: number | null = null;
-  private prevR: number | null = null;
-  private prevW: number | null = null;
-  private prevLean: number | null = null;
-
-  // temporal ankle tracking memory
-  private prevAnkleL: Vec2 | null = null;
-  private prevAnkleR: Vec2 | null = null;
+  // 1-euro filters for rock-solid stability and zero lag
+  private landmarkFilter = new PoseLandmarkFilter(33, 0.5, 0.02);
+  private worldLandmarkFilter = new PoseLandmarkFilter(33, 0.5, 0.02);
+  private angleFilterL = new OneEuroFilter(0.8, 0.02);
+  private angleFilterR = new OneEuroFilter(0.8, 0.02);
 
   // temporal side-on alignment memory
   private prevShoulderRatio: number | null = null;
   private prevHipRatio: number | null = null;
+  private prevW: number | null = null;
+  private prevLean: number | null = null;
 
-  // backwards-compatible dummy method for CameraView lifecycles
   async init(): Promise<void> {
-    // model initialization is handled asynchronously in yolo-pose.worker.ts
-    return Promise.resolve();
+    if (this.landmarker) return Promise.resolve();
+    if (this.isInitializing && this.initPromise) return this.initPromise;
+
+    this.isInitializing = true;
+    this.initPromise = (async () => {
+      try {
+        const vision = await FilesetResolver.forVisionTasks(
+          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm"
+        );
+
+        try {
+          this.landmarker = await PoseLandmarker.createFromOptions(vision, {
+            baseOptions: {
+              modelAssetPath:
+                "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task",
+              delegate: "GPU",
+            },
+            runningMode: "VIDEO",
+            numPoses: 1,
+            minPoseDetectionConfidence: 0.5,
+            minPosePresenceConfidence: 0.5,
+            minTrackingConfidence: 0.5,
+          });
+        } catch {
+          // fallback to CPU if GPU delegate is restricted by browser context
+          this.landmarker = await PoseLandmarker.createFromOptions(vision, {
+            baseOptions: {
+              modelAssetPath:
+                "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task",
+              delegate: "CPU",
+            },
+            runningMode: "VIDEO",
+            numPoses: 1,
+            minPoseDetectionConfidence: 0.5,
+            minPosePresenceConfidence: 0.5,
+            minTrackingConfidence: 0.5,
+          });
+        }
+      } finally {
+        this.isInitializing = false;
+      }
+    })();
+
+    return this.initPromise;
   }
 
   // resets temporal EMA filters when switching exercises or sides
   resetFilters(): void {
-    this.prevL = null;
-    this.prevR = null;
+    this.landmarkFilter.reset();
+    this.worldLandmarkFilter.reset();
+    this.angleFilterL.reset();
+    this.angleFilterR.reset();
     this.prevW = null;
     this.prevLean = null;
-    this.prevAnkleL = null;
-    this.prevAnkleR = null;
     this.prevShoulderRatio = null;
     this.prevHipRatio = null;
   }
 
-  // stabilizes ankle tracking with outlier rejection and temporal continuity.
-  // prevents coordinate flailing while maintaining smooth tracking down to full extension (0°)
-  // even when pants fabric lowers contrast or covers the ankle joint.
-  private stabilizeAnkle(
-    hip: Keypoint,
-    knee: Keypoint,
-    ankle: Keypoint,
-    side: "left" | "right"
-  ): { x: number; y: number; confidence: number } {
-    let currX = ankle.x;
-    let currY = ankle.y;
-    let conf = ankle.score;
-
-    const prev = side === "left" ? this.prevAnkleL : this.prevAnkleR;
-    const femurLen = Math.hypot(knee.x - hip.x, knee.y - hip.y);
-    const shinLen = Math.hypot(currX - knee.x, currY - knee.y);
-
-    if (prev && femurLen > 0.05) {
-      // 1. if ankle collapsed up toward the knee or confidence is low, hold previous valid position
-      if (shinLen < 0.38 * femurLen || conf < 0.20) {
-        currX = prev[0];
-        currY = prev[1];
-        conf = Math.max(conf, 0.40);
-      } else {
-        // 2. reject outlier jumps by clamping maximum displacement to 8% of screen per frame
-        const dx = currX - prev[0];
-        const dy = currY - prev[1];
-        const jumpDist = Math.hypot(dx, dy);
-        const maxJump = 0.08;
-
-        if (jumpDist > maxJump) {
-          currX = prev[0] + (dx / jumpDist) * maxJump;
-          currY = prev[1] + (dy / jumpDist) * maxJump;
-        }
-
-        // 3. smooth temporal blending: confident detections update swiftly, low confidence smooths heavily
-        const blend = Math.max(0.25, Math.min(0.85, conf));
-        currX = blend * currX + (1 - blend) * prev[0];
-        currY = blend * currY + (1 - blend) * prev[1];
-      }
-    }
-
-    // clamp coordinates to normalized [0, 1] frame bounds
-    currX = Math.max(0, Math.min(1, currX));
-    currY = Math.max(0, Math.min(1, currY));
-
-    if (side === "left") {
-      this.prevAnkleL = [currX, currY];
-    } else {
-      this.prevAnkleR = [currX, currY];
-    }
-
-    return { x: currX, y: currY, confidence: Math.max(conf, 0.35) };
-  }
-
-  // processes 17 COCO keypoints received from YOLOv8 worker
-  processKeypoints(
-    keypoints: PoseKeypoints | null,
+  // processes video frame directly via MediaPipe PoseLandmarker
+  processFrame(
+    video: HTMLVideoElement,
+    timestampMs: number,
     _isFrontal?: boolean
   ): PoseState | null {
-    if (!keypoints || keypoints.length < 17) {
+    if (!this.landmarker || !video || video.readyState < 2) {
       return null;
     }
 
-    // map keypoints to COCO landmark indices
-    const lSh = keypoints[COCO_KEYPOINTS.LEFT_SHOULDER];
-    const rSh = keypoints[COCO_KEYPOINTS.RIGHT_SHOULDER];
-    const lHip = keypoints[COCO_KEYPOINTS.LEFT_HIP];
-    const rHip = keypoints[COCO_KEYPOINTS.RIGHT_HIP];
-    const lKnee = keypoints[COCO_KEYPOINTS.LEFT_KNEE];
-    const rKnee = keypoints[COCO_KEYPOINTS.RIGHT_KNEE];
-    const lAnkle = keypoints[COCO_KEYPOINTS.LEFT_ANKLE];
-    const rAnkle = keypoints[COCO_KEYPOINTS.RIGHT_ANKLE];
+    let validTimestamp = timestampMs;
+    if (validTimestamp <= this.lastTimestampMs) {
+      validTimestamp = this.lastTimestampMs + 1;
+    }
+    this.lastTimestampMs = validTimestamp;
 
-    // apply ankle stabilization to eliminate noise and hold positions during pants occlusion
-    const stableAnkleL = this.stabilizeAnkle(lHip, lKnee, lAnkle, "left");
-    const stableAnkleR = this.stabilizeAnkle(rHip, rKnee, rAnkle, "right");
+    let result;
+    try {
+      result = this.landmarker.detectForVideo(video, validTimestamp);
+    } catch {
+      return null;
+    }
 
-    // convert keypoints to normalized landmarks for skeleton canvas drawing
-    const normalizedLandmarks: NormalizedLandmark[] = keypoints.map((kp, idx) => {
-      if (idx === COCO_KEYPOINTS.LEFT_ANKLE) {
-        return {
-          x: stableAnkleL.x,
-          y: stableAnkleL.y,
-          visibility: stableAnkleL.confidence,
-        };
-      }
-      if (idx === COCO_KEYPOINTS.RIGHT_ANKLE) {
-        return {
-          x: stableAnkleR.x,
-          y: stableAnkleR.y,
-          visibility: stableAnkleR.confidence,
-        };
-      }
-      return {
-        x: kp.x,
-        y: kp.y,
-        visibility: kp.score,
-      };
-    });
+    if (
+      !result ||
+      !result.landmarks ||
+      result.landmarks.length === 0 ||
+      !result.landmarks[0]
+    ) {
+      return null;
+    }
 
-    // verify per-leg tracking validity with stabilized joints
-    const lVisible = isLegTrackingValid(lHip, lKnee, {
-      x: stableAnkleL.x,
-      y: stableAnkleL.y,
-      score: stableAnkleL.confidence,
-    });
-    const rVisible = isLegTrackingValid(rHip, rKnee, {
-      x: stableAnkleR.x,
-      y: stableAnkleR.y,
-      score: stableAnkleR.confidence,
-    });
+    const rawNorm = result.landmarks[0];
+    const rawWorld =
+      result.worldLandmarks && result.worldLandmarks[0] && result.worldLandmarks[0].length > 0
+        ? result.worldLandmarks[0]
+        : rawNorm;
 
-    // determine near side based on keypoint confidence & presence
+    // apply 1-euro adaptive speed filtering: heavy noise smoothing at rest, zero lag when moving
+    const normalizedLandmarks = this.landmarkFilter.filter(rawNorm, validTimestamp);
+    const worldLandmarks = this.worldLandmarkFilter.filter(rawWorld, validTimestamp);
+
+    // key landmark references
+    const lSh = normalizedLandmarks[MEDIAPIPE_KEYPOINTS.LEFT_SHOULDER];
+    const rSh = normalizedLandmarks[MEDIAPIPE_KEYPOINTS.RIGHT_SHOULDER];
+    const lHip = normalizedLandmarks[MEDIAPIPE_KEYPOINTS.LEFT_HIP];
+    const rHip = normalizedLandmarks[MEDIAPIPE_KEYPOINTS.RIGHT_HIP];
+    const lKnee = normalizedLandmarks[MEDIAPIPE_KEYPOINTS.LEFT_KNEE];
+    const rKnee = normalizedLandmarks[MEDIAPIPE_KEYPOINTS.RIGHT_KNEE];
+    const lAnkle = normalizedLandmarks[MEDIAPIPE_KEYPOINTS.LEFT_ANKLE];
+    const rAnkle = normalizedLandmarks[MEDIAPIPE_KEYPOINTS.RIGHT_ANKLE];
+
+    // world landmarks for 3d metric angle (bone rotation centers reach true 0° extension)
+    const wLHip = worldLandmarks[MEDIAPIPE_KEYPOINTS.LEFT_HIP];
+    const wRHip = worldLandmarks[MEDIAPIPE_KEYPOINTS.RIGHT_HIP];
+    const wLKnee = worldLandmarks[MEDIAPIPE_KEYPOINTS.LEFT_KNEE];
+    const wRKnee = worldLandmarks[MEDIAPIPE_KEYPOINTS.RIGHT_KNEE];
+    const wLAnk = worldLandmarks[MEDIAPIPE_KEYPOINTS.LEFT_ANKLE];
+    const wRAnk = worldLandmarks[MEDIAPIPE_KEYPOINTS.RIGHT_ANKLE];
+
+    const lVisible = (lHip?.visibility ?? 1) >= 0.5 && (lKnee?.visibility ?? 1) >= 0.5;
+    const rVisible = (rHip?.visibility ?? 1) >= 0.5 && (rKnee?.visibility ?? 1) >= 0.5;
+
+    // determine near side from depth
     let nearSide: "left" | "right" | "unknown" = "unknown";
-    if (lKnee.score > rKnee.score + 0.10) nearSide = "left";
-    else if (rKnee.score > lKnee.score + 0.10) nearSide = "right";
-
-    // compute 2D knee angles (side-on view) using stabilized ankle positions
-    const rawAngleL = getAngle2d(
-      [lHip.x, lHip.y],
-      [lKnee.x, lKnee.y],
-      [stableAnkleL.x, stableAnkleL.y]
-    );
-    const rawAngleR = getAngle2d(
-      [rHip.x, rHip.y],
-      [rKnee.x, rKnee.y],
-      [stableAnkleR.x, stableAnkleR.y]
-    );
-
-    // apply EMA smoothing for joint angles
-    if (lVisible) {
-      this.prevL = applyEma(rawAngleL, this.prevL, this.alpha);
-    }
-    if (rVisible) {
-      this.prevR = applyEma(rawAngleR, this.prevR, this.alpha);
+    if (lKnee && rKnee) {
+      if (lKnee.z !== undefined && rKnee.z !== undefined) {
+        nearSide = lKnee.z < rKnee.z - 0.05 ? "left" : rKnee.z < lKnee.z - 0.05 ? "right" : "unknown";
+      }
     }
 
-    const angleL = this.prevL ?? rawAngleL;
-    const angleR = this.prevR ?? rawAngleR;
+    // compute 3D metric knee angles
+    const rawAngleL = getAngle3d(
+      [wLHip.x, wLHip.y, wLHip.z ?? 0],
+      [wLKnee.x, wLKnee.y, wLKnee.z ?? 0],
+      [wLAnk.x, wLAnk.y, wLAnk.z ?? 0]
+    );
+    const rawAngleR = getAngle3d(
+      [wRHip.x, wRHip.y, wRHip.z ?? 0],
+      [wRKnee.x, wRKnee.y, wRKnee.z ?? 0],
+      [wRAnk.x, wRAnk.y, wRAnk.z ?? 0]
+    );
+
+    // smooth angles with 1-euro filter (eliminates angle flutter)
+    const angleL = this.angleFilterL.filter(rawAngleL, validTimestamp);
+    const angleR = this.angleFilterR.filter(rawAngleR, validTimestamp);
+
+    const targetAngle = this.injuredSide === "left" ? angleL : angleR;
 
     // side-on view alignment check:
-    // in side-on view, shoulders and hips overlap depth-wise (narrow horizontal span relative to torso height).
-    // if horizontal span is wide relative to torso height, user is facing camera which foreshortens 2D angles.
     let isSideAligned = true;
     let sideAlignmentWarning: string | null = null;
 
@@ -263,8 +251,8 @@ export class PoseEngine {
     if (torsoHeight > 0.08) {
       const rawShoulderRatio = shoulderSpan / torsoHeight;
       const rawHipRatio = hipSpan / torsoHeight;
-      this.prevShoulderRatio = applyEma(rawShoulderRatio, this.prevShoulderRatio, this.alpha);
-      this.prevHipRatio = applyEma(rawHipRatio, this.prevHipRatio, this.alpha);
+      this.prevShoulderRatio = applyEma(rawShoulderRatio, this.prevShoulderRatio, 0.25);
+      this.prevHipRatio = applyEma(rawHipRatio, this.prevHipRatio, 0.25);
 
       const smoothShoulder = this.prevShoulderRatio ?? rawShoulderRatio;
       const smoothHip = this.prevHipRatio ?? rawHipRatio;
@@ -275,21 +263,18 @@ export class PoseEngine {
       }
     }
 
-    // always track strictly the selected target side (no jumping between legs)
-    const targetAngle = this.injuredSide === "left" ? angleL : angleR;
-
     // frontal plane metrics:
     // 1. weight distribution across feet
     const comX = (lSh.x + rSh.x) / 2;
-    const bosWidth = Math.abs(stableAnkleR.x - stableAnkleL.x);
-    const healthyAnkleX = this.injuredSide === "left" ? stableAnkleR.x : stableAnkleL.x;
+    const bosWidth = Math.abs(rAnkle.x - lAnkle.x);
+    const healthyAnkleX = this.injuredSide === "left" ? rAnkle.x : lAnkle.x;
 
     let rawW = 50;
     if (bosWidth > 0.05) {
       const distFromHealthy = Math.abs(comX - healthyAnkleX);
       rawW = Math.max(0, Math.min(100, (distFromHealthy / bosWidth) * 100));
     }
-    this.prevW = applyEma(rawW, this.prevW, this.alpha);
+    this.prevW = applyEma(rawW, this.prevW, 0.35);
 
     // 2. trunk lean relative to true vertical
     const midSh: Vec2 = [(lSh.x + rSh.x) / 2, (lSh.y + rSh.y) / 2];
@@ -313,7 +298,7 @@ export class PoseEngine {
       const leaningSide = lateralShift > 0 ? "left" : "right";
       leanDirection = leaningSide === this.injuredSide ? "injured" : "healthy";
     }
-    this.prevLean = applyEma(rawBodyLean, this.prevLean, this.alpha);
+    this.prevLean = applyEma(rawBodyLean, this.prevLean, 0.35);
 
     return {
       targetKneeAngle: targetAngle,
