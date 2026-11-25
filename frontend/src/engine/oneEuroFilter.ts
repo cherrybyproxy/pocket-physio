@@ -1,4 +1,4 @@
-// 1-euro filter for real-time low-latency filtering of noisy pose keypoint signals.
+// 1-euro filter for real-time low-latency filtering of noisy pose landmark signals.
 // Casiez et al., CHI 2012: "1 € Filter: A Simple Speed-based Low-pass Filter for Noisy Input in Interactive Systems"
 // adapts cutoff frequency based on movement speed: heavy smoothing when static to eliminate jitter,
 // and high cutoff when moving to prevent lag.
@@ -44,7 +44,7 @@ export class OneEuroFilter {
   private dxFilter: LowPassFilter;
   private lastTime: number | null = null;
 
-  constructor(minCutoff = 1.0, beta = 0.007, dCutoff = 1.0) {
+  constructor(minCutoff = 0.5, beta = 0.02, dCutoff = 1.0) {
     this.minCutoff = minCutoff;
     this.beta = beta;
     this.dCutoff = dCutoff;
@@ -85,39 +85,54 @@ export class OneEuroFilter {
   }
 }
 
-export class PoseKeypointFilter {
-  private filters: { x: OneEuroFilter; y: OneEuroFilter }[] = [];
+export interface FilterableLandmark {
+  x: number;
+  y: number;
+  z?: number;
+  visibility?: number;
+}
 
-  constructor(count = 17, minCutoff = 1.0, beta = 0.005) {
+export class PoseLandmarkFilter {
+  private filters: { x: OneEuroFilter; y: OneEuroFilter; z: OneEuroFilter }[] = [];
+
+  constructor(count = 33, minCutoff = 0.5, beta = 0.02) {
     for (let i = 0; i < count; i++) {
       this.filters.push({
         x: new OneEuroFilter(minCutoff, beta),
         y: new OneEuroFilter(minCutoff, beta),
+        z: new OneEuroFilter(minCutoff, beta),
       });
     }
   }
 
-  // filters all 17 COCO keypoints continuously to eliminate micro-jitter
-  filter(
-    keypoints: { x: number; y: number; score: number }[],
-    timestamp = performance.now()
-  ): { x: number; y: number; score: number }[] {
-    return keypoints.map((kp, i) => {
-      if (i >= this.filters.length) return kp;
-      if (!Number.isFinite(kp.x) || !Number.isFinite(kp.y)) return kp;
+  // filters landmarks continuously to eliminate micro-jitter while preserving fast movement responsiveness
+  filter<T extends FilterableLandmark>(landmarks: T[], timestamp = performance.now()): T[] {
+    return landmarks.map((lm, i) => {
+      if (i >= this.filters.length) return lm;
+      if (!Number.isFinite(lm.x) || !Number.isFinite(lm.y)) return lm;
+
+      const filteredX = this.filters[i].x.filter(lm.x, timestamp);
+      const filteredY = this.filters[i].y.filter(lm.y, timestamp);
+      const filteredZ =
+        lm.z !== undefined && Number.isFinite(lm.z)
+          ? this.filters[i].z.filter(lm.z, timestamp)
+          : lm.z;
+
       return {
-        x: this.filters[i].x.filter(kp.x, timestamp),
-        y: this.filters[i].y.filter(kp.y, timestamp),
-        score: kp.score,
+        ...lm,
+        x: filteredX,
+        y: filteredY,
+        z: filteredZ,
       };
     });
   }
 
-  // clears filter temporal memory across all keypoints
+  // clears filter temporal memory across all landmarks
   reset(): void {
     for (const f of this.filters) {
       f.x.reset();
       f.y.reset();
+      f.z.reset();
     }
   }
 }
