@@ -7,7 +7,7 @@ import {
   FilesetResolver,
   type NormalizedLandmark,
 } from "@mediapipe/tasks-vision";
-import { OneEuroFilter, PoseLandmarkFilter } from "./oneEuroFilter";
+import { PoseLandmarkFilter } from "./oneEuroFilter";
 
 export { type NormalizedLandmark };
 
@@ -82,8 +82,6 @@ export class PoseEngine {
   // 1-euro filters for rock-solid stability and zero lag
   private landmarkFilter = new PoseLandmarkFilter(33, 0.5, 0.02);
   private worldLandmarkFilter = new PoseLandmarkFilter(33, 0.5, 0.02);
-  private angleFilterL = new OneEuroFilter(0.8, 0.02);
-  private angleFilterR = new OneEuroFilter(0.8, 0.02);
 
   // temporal side-on alignment memory
   private prevShoulderRatio: number | null = null;
@@ -150,8 +148,6 @@ export class PoseEngine {
   resetFilters(): void {
     this.landmarkFilter.reset();
     this.worldLandmarkFilter.reset();
-    this.angleFilterL.reset();
-    this.angleFilterR.reset();
     this.prevW = null;
     this.prevLean = null;
     this.prevShoulderRatio = null;
@@ -232,21 +228,17 @@ export class PoseEngine {
       }
     }
 
-    // compute 3D metric knee angles
-    const rawAngleL = getAngle3d(
+    // compute 3D metric knee angles directly from filtered world landmarks (avoids dual-stage filter lag)
+    const angleL = getAngle3d(
       [wLHip.x, wLHip.y, wLHip.z ?? 0],
       [wLKnee.x, wLKnee.y, wLKnee.z ?? 0],
       [wLAnk.x, wLAnk.y, wLAnk.z ?? 0]
     );
-    const rawAngleR = getAngle3d(
+    const angleR = getAngle3d(
       [wRHip.x, wRHip.y, wRHip.z ?? 0],
       [wRKnee.x, wRKnee.y, wRKnee.z ?? 0],
       [wRAnk.x, wRAnk.y, wRAnk.z ?? 0]
     );
-
-    // smooth angles with 1-euro filter (eliminates angle flutter)
-    const angleL = this.angleFilterL.filter(rawAngleL, validTimestamp);
-    const angleR = this.angleFilterR.filter(rawAngleR, validTimestamp);
 
     const targetAngle = this.injuredSide === "left" ? angleL : angleR;
 
