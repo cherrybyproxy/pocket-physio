@@ -83,6 +83,7 @@ export default function CameraView({
 
     async function startCamera() {
       try {
+        // request 16:9 720p resolution matching the UI aspect ratio and HUD canvas scaling
         stream = await navigator.mediaDevices.getUserMedia({
           video: {
             width: { ideal: 1280 },

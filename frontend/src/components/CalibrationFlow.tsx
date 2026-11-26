@@ -534,12 +534,14 @@ export default function CalibrationFlow({
       height: number
     ) => {
       const anglesValid = pose !== null;
-      const fontSize = Math.max(24, Math.round(height * 0.042));
+      // scale hud dynamically relative to reference 720p height so text never blows up
+      const hudScale = Math.min(height / 720, _width / 1280);
+      const fontSize = Math.max(14, Math.round(26 * hudScale));
       const lineGap = Math.round(fontSize * 1.35);
-      let y = 20;
+      let y = Math.round(20 * hudScale);
 
-      const leftX = 24;
-      const rightX = Math.round(_width / 2 + 24);
+      const leftX = Math.round(24 * hudScale);
+      const rightX = Math.round(_width / 2 + 24 * hudScale);
 
       if (state === "mode_select") {
         // Presented in welcome pop-up modal; no canvas HUD text needed
