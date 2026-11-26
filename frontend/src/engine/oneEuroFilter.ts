@@ -88,7 +88,7 @@ export class OneEuroFilter {
 export interface FilterableLandmark {
   x: number;
   y: number;
-  z?: number;
+  z: number;
   visibility?: number;
 }
 
@@ -113,17 +113,16 @@ export class PoseLandmarkFilter {
 
       const filteredX = this.filters[i].x.filter(lm.x, timestamp);
       const filteredY = this.filters[i].y.filter(lm.y, timestamp);
-      const filteredZ =
-        lm.z !== undefined && Number.isFinite(lm.z)
-          ? this.filters[i].z.filter(lm.z, timestamp)
-          : lm.z;
+      const filteredZ = Number.isFinite(lm.z)
+        ? this.filters[i].z.filter(lm.z, timestamp)
+        : lm.z;
 
       return {
         ...lm,
         x: filteredX,
         y: filteredY,
         z: filteredZ,
-      };
+      } as T;
     });
   }
 

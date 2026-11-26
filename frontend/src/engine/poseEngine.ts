@@ -30,6 +30,8 @@ export interface PoseState {
   targetKneeAngle: number;
   leftKneeAngle: number;
   rightKneeAngle: number;
+  // inference duration in milliseconds
+  inferMs?: number;
   // side-on view alignment validation
   isSideAligned: boolean;
   sideAlignmentWarning: string | null;
@@ -96,15 +98,19 @@ export class PoseEngine {
     this.isInitializing = true;
     this.initPromise = (async () => {
       try {
+        console.log("[PoseEngine] Initializing MediaPipe FilesetResolver...");
         const vision = await FilesetResolver.forVisionTasks(
           "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm"
         );
+        console.log("[PoseEngine] FilesetResolver ready. Creating PoseLandmarker...");
+
+        const modelUrl =
+          "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task";
 
         try {
           this.landmarker = await PoseLandmarker.createFromOptions(vision, {
             baseOptions: {
-              modelAssetPath:
-                "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task",
+              modelAssetPath: modelUrl,
               delegate: "GPU",
             },
             runningMode: "VIDEO",
@@ -113,12 +119,12 @@ export class PoseEngine {
             minPosePresenceConfidence: 0.5,
             minTrackingConfidence: 0.5,
           });
-        } catch {
-          // fallback to CPU if GPU delegate is restricted by browser context
+          console.log("[PoseEngine] PoseLandmarker initialized with GPU delegate.");
+        } catch (gpuErr) {
+          console.warn("[PoseEngine] GPU delegate failed, falling back to CPU:", gpuErr);
           this.landmarker = await PoseLandmarker.createFromOptions(vision, {
             baseOptions: {
-              modelAssetPath:
-                "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task",
+              modelAssetPath: modelUrl,
               delegate: "CPU",
             },
             runningMode: "VIDEO",
@@ -127,7 +133,11 @@ export class PoseEngine {
             minPosePresenceConfidence: 0.5,
             minTrackingConfidence: 0.5,
           });
+          console.log("[PoseEngine] PoseLandmarker initialized with CPU delegate.");
         }
+      } catch (err) {
+        console.error("[PoseEngine] Failed to initialize PoseLandmarker:", err);
+        throw err;
       } finally {
         this.isInitializing = false;
       }
@@ -165,11 +175,14 @@ export class PoseEngine {
     this.lastTimestampMs = validTimestamp;
 
     let result;
+    const t0 = performance.now();
     try {
       result = this.landmarker.detectForVideo(video, validTimestamp);
-    } catch {
+    } catch (err) {
+      console.warn("[PoseEngine] detectForVideo error:", err);
       return null;
     }
+    const inferMs = Math.round((performance.now() - t0) * 10) / 10;
 
     if (
       !result ||
@@ -187,7 +200,7 @@ export class PoseEngine {
         : rawNorm;
 
     // apply 1-euro adaptive speed filtering: heavy noise smoothing at rest, zero lag when moving
-    const normalizedLandmarks = this.landmarkFilter.filter(rawNorm, validTimestamp);
+    const normalizedLandmarks: NormalizedLandmark[] = this.landmarkFilter.filter(rawNorm, validTimestamp);
     const worldLandmarks = this.worldLandmarkFilter.filter(rawWorld, validTimestamp);
 
     // key landmark references
@@ -304,6 +317,7 @@ export class PoseEngine {
       targetKneeAngle: targetAngle,
       leftKneeAngle: angleL,
       rightKneeAngle: angleR,
+      inferMs,
       isSideAligned,
       sideAlignmentWarning,
       weightDist: this.prevW ?? 50,

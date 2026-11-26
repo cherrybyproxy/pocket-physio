@@ -33,6 +33,11 @@ export default function CameraView({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [modelReady, setModelReady] = useState(false);
+  const [metrics, setMetrics] = useState({ inferMs: 0, fps: 0 });
+
+  const latestPoseStateRef = useRef<PoseState | null>(null);
+  const fpsCountRef = useRef(0);
+  const fpsLastSampleRef = useRef(performance.now());
 
   // keep callback refs fresh so the continuous RAF loop never drops frames
   const onFrameRef = useRef(onFrame);
@@ -108,11 +113,11 @@ export default function CameraView({
     };
   }, []);
 
-  // continuous synchronous 60 FPS MediaPipe pose estimation & render loop
+  // continuous synchronous MediaPipe pose estimation & render loop
   useEffect(() => {
     let isRunning = true;
     let animId = 0;
-    let lastTimestamp = -1;
+    let lastTime = -1;
 
     function renderLoop() {
       if (!isRunning) return;
@@ -138,16 +143,37 @@ export default function CameraView({
 
         const ctx = canvas.getContext("2d");
         if (ctx) {
-          let now = performance.now();
-          if (now <= lastTimestamp) {
-            now = lastTimestamp + 1;
-          }
-          lastTimestamp = now;
+          const now = performance.now();
+          const timestamp = now > lastTime ? now : lastTime + 1;
+          lastTime = timestamp;
 
-          // process frame through mediapipe with 1-euro adaptive smoothing
-          const state = modelReady
-            ? engineRef.current.processFrame(video, now, isFrontalRef.current)
-            : null;
+          let state: PoseState | null = null;
+          if (modelReady) {
+            try {
+              state = engineRef.current.processFrame(video, timestamp, isFrontalRef.current);
+            } catch (err) {
+              console.warn("[CameraView] processFrame error:", err);
+            }
+          }
+
+          if (state) {
+            latestPoseStateRef.current = state;
+            onFrameRef.current?.(state);
+
+            // update FPS & inferMs metrics once every second
+            fpsCountRef.current++;
+            const elapsed = now - fpsLastSampleRef.current;
+            if (elapsed >= 1000) {
+              setMetrics({
+                inferMs: state.inferMs ?? 0,
+                fps: Math.round((fpsCountRef.current * 1000) / elapsed),
+              });
+              fpsCountRef.current = 0;
+              fpsLastSampleRef.current = now;
+            }
+          }
+
+          const currentPose = state ?? latestPoseStateRef.current;
 
           // clear canvas frame
           ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -156,10 +182,10 @@ export default function CameraView({
           ctx.save();
           ctx.translate(canvas.width, 0);
           ctx.scale(-1, 1);
-          if (state?.normalizedLandmarks) {
+          if (currentPose?.normalizedLandmarks) {
             drawSkeleton(
               ctx,
-              state.normalizedLandmarks,
+              currentPose.normalizedLandmarks,
               canvas.width,
               canvas.height,
               filterSideRef.current
@@ -169,7 +195,7 @@ export default function CameraView({
             if (isFrontalRef.current) {
               drawFrontalDiagnostics(
                 ctx,
-                state.normalizedLandmarks,
+                currentPose.normalizedLandmarks,
                 canvas.width,
                 canvas.height,
                 filterSideRef.current
@@ -180,12 +206,7 @@ export default function CameraView({
 
           // draw HUD text un-mirrored so it reads left-to-right
           if (renderHudRef.current) {
-            renderHudRef.current(ctx, state, canvas.width, canvas.height);
-          }
-
-          // notify parent component of state change
-          if (onFrameRef.current) {
-            onFrameRef.current(state);
+            renderHudRef.current(ctx, currentPose, canvas.width, canvas.height);
           }
         }
       }
@@ -273,7 +294,11 @@ export default function CameraView({
               : "0 0 6px rgba(245, 158, 11, 0.6)",
           }}
         />
-        {modelReady ? "MediaPipe 3D GPU" : "Loading Model..."}
+        {modelReady
+          ? metrics.fps > 0
+            ? `MediaPipe 3D GPU (${metrics.inferMs}ms · ${metrics.fps} FPS)`
+            : "MediaPipe 3D GPU"
+          : "Loading Model..."}
       </div>
     </div>
   );
